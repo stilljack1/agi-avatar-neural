@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import AvatarBrain from '@/components/avatar/AvatarBrain';
+import AvatarBrain from '../../components/avatar/AvatarBrain';
 import { Activity, Shield, Cpu } from 'lucide-react';
 
 export default function MissionControl() {
