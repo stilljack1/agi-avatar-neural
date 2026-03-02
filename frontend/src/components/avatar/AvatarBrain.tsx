@@ -121,10 +121,10 @@ export default function AvatarBrain({ name, image, onImageUpload }) {
 
              {/* DATA STREAM */}
              <div className="bg-black p-3 rounded border border-gray-800 font-mono text-[10px] text-green-500/80 leading-relaxed">
-                &gt; OLFACTORY: {sensoryReport.smell} <br/>
-                &gt; GUSTATORY: {sensoryReport.taste} <br/>
-                &gt; CPU LOAD: {Math.floor(Math.random() * 30) + 10}% <br/>
-                &gt; NEURAL NET: CONVERGED
+                {" > "} OLFACTORY: {sensoryReport.smell} <br/>
+                {" > "} GUSTATORY: {sensoryReport.taste} <br/>
+                {" > "} CPU LOAD: {Math.floor(Math.random() * 30) + 10}% <br/>
+                {" > "} NEURAL NET: CONVERGED
              </div>
           </motion.div>
         )}
