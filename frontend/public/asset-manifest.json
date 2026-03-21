@@ -1,0 +1,17 @@
+{
+  "jack": {
+    "video": "/avatars/jack-idle.mp4",
+    "idleVideo": "/avatars/jack-idle.mp4",
+    "speakingVideo": "/avatars/jack-speaking.mp4",
+    "image": "/avatars/jack-portrait.png",
+    "personaplex_id": "jack_sovereign_v1"
+  },
+  "julia": {
+    "video": "/avatars/julia-idle.mp4",
+    "idleVideo": "/avatars/julia-idle.mp4",
+    "speakingVideo": "/avatars/julia-speaking.mp4",
+    "altVideo": "/avatars/julia-alt.mp4",
+    "image": "/avatars/julia-portrait.png",
+    "personaplex_id": "julia_sovereign_v1"
+  }
+}

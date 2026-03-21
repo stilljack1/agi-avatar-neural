@@ -1,0 +1,15 @@
+{
+  "engine": "nvidia_personaplex_v2",
+  "jack": {
+    "voice_profile": "sovereign_male_alpha",
+    "pitch_offset": -0.1,
+    "emotional_range": 0.85,
+    "latency_target": "ultra-low"
+  },
+  "julia": {
+    "voice_profile": "sovereign_female_beta",
+    "pitch_offset": 0.05,
+    "emotional_range": 0.92,
+    "latency_target": "ultra-low"
+  }
+}

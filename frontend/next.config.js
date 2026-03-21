@@ -1,17 +1,28 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: 'standalone',
+  experimental: {
+    instrumentationHook: true,
+  },
   async rewrites() {
-    // Determine the destination, defaulting to a valid URL string to prevent build failure
-    const destination = (process.env.NEXT_PUBLIC_API_URL || "https://agi-1-superintelligent-mind.onrender.com").replace(/\/$/, "");
-    
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${destination}/api/:path*`,
-      },
-    ];
+    const destination = (process.env.NEXT_PUBLIC_API_URL || "https://api.agi1.org").replace(/\/$/, "");
+    return {
+      beforeFiles: [],
+      afterFiles: [
+        // Proxy the production AGI backend paths that power the live neural surface.
+        { source: '/api/chat', destination: `${destination}/api/chat` },
+        { source: '/api/chat/history', destination: `${destination}/api/chat/history` },
+        { source: '/api/neural/runtime', destination: `${destination}/api/neural/runtime` },
+        { source: '/api/livekit-token', destination: `${destination}/api/livekit-token` },
+        { source: '/api/livekit-token/refresh', destination: `${destination}/api/livekit-token/refresh` },
+        { source: '/api/livekit-runtime', destination: `${destination}/api/livekit-runtime` },
+        { source: '/api/livekit-end', destination: `${destination}/api/livekit-end` },
+        { source: '/api/vision/frame', destination: `${destination}/api/vision/frame` },
+        { source: '/v1/neural/runtime', destination: `${destination}/v1/neural/runtime` },
+      ],
+      fallback: [],
+    };
   },
 }
-
 module.exports = nextConfig
