@@ -79,6 +79,48 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
     return videoRef.current;
   };
 
+  const waitForVideoReady = useCallback(async (video: HTMLVideoElement, timeoutMs = 2500) => {
+    if (video.videoWidth > 0 && video.videoHeight > 0 && video.readyState >= 2) {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timeoutId: number | null = null;
+
+      const cleanup = () => {
+        video.removeEventListener('loadedmetadata', onReady);
+        video.removeEventListener('canplay', onReady);
+        video.removeEventListener('playing', onReady);
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+      };
+
+      const onReady = () => {
+        if (settled) return;
+        if (video.videoWidth > 0 && video.videoHeight > 0 && video.readyState >= 2) {
+          settled = true;
+          cleanup();
+          resolve();
+        }
+      };
+
+      video.addEventListener('loadedmetadata', onReady);
+      video.addEventListener('canplay', onReady);
+      video.addEventListener('playing', onReady);
+
+      timeoutId = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('video_frame_not_ready'));
+      }, timeoutMs);
+
+      onReady();
+    });
+  }, []);
+
   const cleanupStream = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -114,6 +156,7 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
         // The hidden preview is muted and may still settle a beat later.
         // Keep the visual session live instead of failing the whole camera path.
       });
+      await waitForVideoReady(video);
 
       setVisionMode('camera');
       setVisionState('camera_live');
@@ -143,6 +186,7 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
       void video.play().catch(() => {
         // Screen-share preview can lag without meaning capture failed.
       });
+      await waitForVideoReady(video);
 
       // Handle user stopping screen share via browser UI
       stream.getVideoTracks()[0].addEventListener('ended', () => {
@@ -233,6 +277,7 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
     }
 
     try {
+      await waitForVideoReady(getVideo());
       await sendVisionFrame({
         call_session_id: context?.callSessionId,
         user_id: context?.userId || getStableBrowserUserId(),
@@ -263,6 +308,7 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
     setVisionState('analyzing');
 
     try {
+      await waitForVideoReady(getVideo());
       const captured = captureFramePayload();
       if (!captured) {
         setVisionState('camera_live');
