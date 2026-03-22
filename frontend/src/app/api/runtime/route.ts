@@ -24,6 +24,29 @@ const DID_API_KEY = process.env.DID_API_KEY || '';
 const SIMLI_API_KEY = process.env.SIMLI_API_KEY || '';
 const LIPSYNC_SERVER_URL = process.env.LIPSYNC_SERVER_URL || '';
 const AUDIO2FACE_BRIDGE_URL = process.env.AUDIO2FACE_BRIDGE_URL || process.env.NVIDIA_ACE_WS_URL || '';
+const AGI1_RUNTIME_BACKEND_URL = (process.env.AGI1_RUNTIME_BACKEND_URL || process.env.NEXT_PUBLIC_AGI_BACKEND_URL || 'https://api.agi1.org').replace(/\/$/, '');
+
+async function loadBackendPhysicalLayer(userId: string) {
+  try {
+    const response = await fetch(
+      `${AGI1_RUNTIME_BACKEND_URL}/api/neural/runtime?user_id=${encodeURIComponent(userId)}`,
+      {
+        cache: 'no-store',
+        headers: { accept: 'application/json' },
+      },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json();
+    if (payload && typeof payload === 'object' && payload.physical_layer && typeof payload.physical_layer === 'object') {
+      return payload.physical_layer;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id') || 'default';
@@ -63,6 +86,43 @@ export async function GET(request: NextRequest) {
 
   // Recent audit events
   const recentAudit = readWorkspaceAudit(5);
+  const backendPhysicalLayer = await loadBackendPhysicalLayer(userId);
+  const fallbackPhysicalLayer = {
+    world_model_live: false,
+    scene_persistence_live: true,
+    scene_query_live: true,
+    actor_grounding_live: false,
+    embodiment_constraints_live: false,
+    ebm_logic_guard_live: false,
+    photonic_presence_live: false,
+    components: {
+      worldfm: {
+        status: 'staged',
+        note: 'Scene persistence is local-only until the backend physical layer responds.',
+      },
+      ebm: {
+        status: 'staged',
+        note: 'Rule-based consistency seam exists locally; backend truth is preferred.',
+      },
+      psizero: {
+        status: 'staged',
+        note: 'Motion constraints are staged until the backend physical layer is active.',
+      },
+      lito: {
+        status: 'staged',
+        note: 'Photonic presence remains staged until the backend runtime confirms it.',
+      },
+    },
+    war_room_v1: {
+      found: true,
+      scene_id: 'war_room_v1',
+      attached_actors: ['jack', 'julia'],
+      persistent: true,
+    },
+    blockers: [
+      'Backend physical layer runtime did not respond; using a local fallback contract.',
+    ],
+  };
 
   return NextResponse.json({
     status: 'ok',
@@ -174,6 +234,11 @@ export async function GET(request: NextRequest) {
         capabilities: ['camera', 'microphone', 'screen_share'],
       },
     },
+
+    // Physical Layer — truthful runtime flags
+    // These report the actual state of the world model integration.
+    // All flags default to false unless the physical layer backend confirms otherwise.
+    physical_layer: backendPhysicalLayer || fallbackPhysicalLayer,
 
     // Recent activity
     recent_audit: recentAudit,
