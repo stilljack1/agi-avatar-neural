@@ -165,7 +165,7 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
       setVisionError(msg);
       setVisionState('error_camera');
     }
-  }, []);
+  }, [waitForVideoReady]);
 
   const startScreenShare = useCallback(async () => {
     setVisionError('');
@@ -190,7 +190,11 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
 
       // Handle user stopping screen share via browser UI
       stream.getVideoTracks()[0].addEventListener('ended', () => {
-        stopVision();
+        cleanupStream();
+        setVisionMode('off');
+        setVisionState('camera_off');
+        setVisionError('');
+        setIsAnalyzing(false);
       });
 
       setVisionMode('screen');
@@ -200,7 +204,7 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
       setVisionError(msg);
       setVisionState('error_camera');
     }
-  }, []);
+  }, [waitForVideoReady]);
 
   const stopVision = useCallback(() => {
     cleanupStream();
@@ -271,13 +275,12 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
       return false;
     }
 
-    const captured = captureFramePayload();
-    if (!captured) {
-      return false;
-    }
-
     try {
       await waitForVideoReady(getVideo());
+      const captured = captureFramePayload();
+      if (!captured) {
+        return false;
+      }
       await sendVisionFrame({
         call_session_id: context?.callSessionId,
         user_id: context?.userId || getStableBrowserUserId(),
@@ -293,7 +296,7 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
       setVisionError(msg);
       return false;
     }
-  }, [captureFramePayload, visionMode, visionState]);
+  }, [captureFramePayload, visionMode, visionState, waitForVideoReady]);
 
   const captureAndAnalyze = useCallback(async (
     actor: 'jack' | 'julia',
@@ -357,7 +360,7 @@ export function useVisionCapture(): [VisionCaptureState, VisionCaptureActions] {
       setIsAnalyzing(false);
       return `Vision analysis failed: ${msg}`;
     }
-  }, [captureFramePayload, visionMode, visionState]);
+  }, [captureFramePayload, visionMode, visionState, waitForVideoReady]);
 
   return [
     {
