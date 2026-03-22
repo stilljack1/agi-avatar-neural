@@ -325,6 +325,14 @@ export default function NeuralPage() {
   const micStreamRef = useRef<MediaStream | null>(null);
   const lastRoomStatusRef = useRef<string>('disconnected');
 
+  // Stable canvas ref — getCanvas() returns the same element each time,
+  // but calling it in render creates a new object reference for React.
+  // Store the result once so the AvatarStage useEffect doesn't re-fire.
+  const lipSyncCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  if (!lipSyncCanvasRef.current) {
+    lipSyncCanvasRef.current = lipSyncActions.getCanvas();
+  }
+
   const userId = persistBrowserUserId(getStableBrowserUserId());
   const cfg = AVATAR_CONFIG[actor];
 
@@ -698,6 +706,25 @@ export default function NeuralPage() {
     setActor(nextActor);
   }, [actor, groqActions, lipSyncActions, liveRoomActions]);
 
+  const avatarSurfaceLive = lipSyncState.isActive || lipSyncState.isRendering;
+  const avatarStatusLabel = lipSyncState.isActive
+    ? `Lip-sync live ${lipSyncState.fps}fps`
+    : lipSyncState.isRendering
+      ? 'Portrait render live'
+      : 'Portrait mode';
+  const avatarStatusAccent = lipSyncState.isActive
+    ? '#a855f7'
+    : lipSyncState.isRendering
+      ? '#22c55e'
+      : '#475569';
+  const avatarRuntimeDetail = lipSyncState.isActive
+    ? `Browser portrait lip-sync live — ${lipSyncState.fps}fps`
+    : lipSyncState.isRendering
+      ? 'Portrait canvas live — idle motion active'
+      : runtimeTruth?.personaplex_live
+        ? 'PersonaPlex runtime connected'
+        : 'Portrait fallback active — PersonaPlex / Audio2Face not connected';
+
   const topStatusPills = [
     {
       label: liveCallActive
@@ -719,13 +746,9 @@ export default function NeuralPage() {
       accent: visualPipelineReady ? cfg.accent : '#475569',
     },
     {
-      label: lipSyncState.isActive
-        ? `Lip-sync live ${lipSyncState.fps}fps`
-        : lipSyncState.isRendering
-          ? 'Digital human active'
-          : memoryLoaded ? 'Memory active' : 'Digital human ready',
-      active: lipSyncState.isActive || lipSyncState.isRendering || memoryLoaded,
-      accent: lipSyncState.isActive ? '#a855f7' : lipSyncState.isRendering ? '#22c55e' : memoryLoaded ? '#22c55e' : '#475569',
+      label: avatarStatusLabel,
+      active: avatarSurfaceLive,
+      accent: avatarStatusAccent,
     },
   ];
 
@@ -797,14 +820,12 @@ export default function NeuralPage() {
           <StatusDot label="TTS" active={groq.ttsReady || Boolean(runtimeTruth?.full_duplex_live)} detail={runtimeTruth?.tts_provider || 'Groq Orpheus'} />
           <StatusDot label="LLM" active={runtimeTruth?.llm_live ?? true} detail={runtimeTruth?.llm_provider ? `${runtimeTruth.llm_provider} live` : 'Groq Llama-3.3-70b'} />
           <StatusDot
-            label="Digital Human"
-            active={lipSyncState.isRendering}
+            label="Avatar Runtime"
+            active={avatarSurfaceLive}
             detail={
               lipSyncState.isActive
-                ? `Real-time lip-sync live — ${lipSyncState.fps}fps, jaw=${lipSyncState.viseme.jawOpen.toFixed(2)}`
-                : lipSyncState.isRendering
-                  ? 'Canvas render active — idle animation running'
-                  : 'Ready — portrait loaded, waiting for speech'
+                ? `${avatarRuntimeDetail}, jaw=${lipSyncState.viseme.jawOpen.toFixed(2)}`
+                : avatarRuntimeDetail
             }
           />
           <StatusDot label="Camera" active={visualPipelineReady} detail={vision.visionState.replace(/_/g, ' ')} />
@@ -844,7 +865,7 @@ export default function NeuralPage() {
             isListening={voiceMode === 'recording'}
             audioLevel={audioLevel}
             avatarMedia={avatarMedia}
-            lipSyncCanvas={lipSyncActions.getCanvas()}
+            lipSyncCanvas={lipSyncCanvasRef.current}
             lipSyncActive={lipSyncState.isActive}
             lipSyncFps={lipSyncState.fps}
           />

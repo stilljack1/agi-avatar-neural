@@ -132,40 +132,75 @@ function lerp(a: number, b: number, t: number): number {
 function computeIdleAnim(time: number, isSpeaking: boolean): FaceAnimState {
   const t = time / 1000;
 
-  // Breathing: subtle scale oscillation
-  const breathScale = 1 + Math.sin(t * 0.8) * 0.003;
+  // Breathing: subtle chest/shoulder rise. Deeper when idle, shallower when speaking.
+  const breathRate = isSpeaking ? 1.2 : 0.7;
+  const breathDepth = isSpeaking ? 0.002 : 0.004;
+  const breathScale = 1 + Math.sin(t * breathRate) * breathDepth;
 
-  // Micro head movements (more when speaking)
-  const speakMult = isSpeaking ? 1.5 : 0.5;
-  const headRotX = Math.sin(t * 0.3) * 0.5 * speakMult + Math.sin(t * 0.7) * 0.3 * speakMult;
-  const headRotY = Math.sin(t * 0.2 + 1.3) * 0.8 * speakMult + Math.cos(t * 0.5) * 0.4 * speakMult;
-  const headRotZ = Math.sin(t * 0.15 + 2.1) * 0.3;
+  // Head movement — layered Perlin-like motion for natural feel
+  // Speaking: more movement (nods for emphasis, slight turns)
+  // Idle: gentle drift, occasional recentering
+  const speakMult = isSpeaking ? 2.0 : 0.6;
+  const headRotX = (
+    Math.sin(t * 0.25) * 0.4 +
+    Math.sin(t * 0.6 + 1.7) * 0.25 +
+    Math.sin(t * 1.3 + 0.3) * 0.15 * (isSpeaking ? 1 : 0.2) // fast nods when speaking
+  ) * speakMult;
+  const headRotY = (
+    Math.sin(t * 0.18 + 1.3) * 0.6 +
+    Math.cos(t * 0.42 + 2.7) * 0.35 +
+    Math.sin(t * 0.95 + 0.8) * 0.15 * (isSpeaking ? 1 : 0.3) // quick turns for emphasis
+  ) * speakMult;
+  const headRotZ = (
+    Math.sin(t * 0.12 + 2.1) * 0.25 +
+    Math.cos(t * 0.35 + 0.5) * 0.12
+  ) * (isSpeaking ? 0.8 : 0.5);
 
-  // Eye blinks: ~every 3-6 seconds, 150ms duration
-  const blinkCycle = 4.5;
+  // Eye blinks — natural rhythm: 3-5 second base cycle with random variation
+  // Double-blinks occasionally (rapid re-blink)
+  const blinkSeed1 = Math.sin(t * 0.73) * 0.5 + 0.5; // pseudo-random variation
+  const blinkCycle = 3.5 + blinkSeed1 * 2.5; // 3.5-6s variable cycle
   const blinkPhase = (t % blinkCycle) / blinkCycle;
-  const blinkDuration = 0.035; // fraction of cycle
-  let eyeBlink = 0;
+  const blinkDuration = 0.04; // fraction of cycle (~150-240ms)
+  let eyeBlinkL = 0;
   if (blinkPhase < blinkDuration) {
     const p = blinkPhase / blinkDuration;
-    eyeBlink = p < 0.5 ? p * 2 : (1 - p) * 2;
+    eyeBlinkL = p < 0.4 ? p / 0.4 : (1 - p) / 0.6; // fast close, slower open
   }
-  // Secondary blink (slightly offset for natural asymmetry)
-  const blink2Phase = ((t + 0.03) % (blinkCycle * 1.1)) / (blinkCycle * 1.1);
-  let eyeBlinkR = eyeBlink;
-  if (blink2Phase < blinkDuration * 0.8) {
-    const p2 = blink2Phase / (blinkDuration * 0.8);
-    eyeBlinkR = Math.max(eyeBlinkR, p2 < 0.5 ? p2 * 2 : (1 - p2) * 2);
+  // Double-blink: ~20% of blinks get a quick re-blink
+  const doubleBlink = Math.sin(t * 1.37) > 0.7;
+  if (doubleBlink && blinkPhase > blinkDuration && blinkPhase < blinkDuration * 2.5) {
+    const p2 = (blinkPhase - blinkDuration) / (blinkDuration * 1.5);
+    eyeBlinkL = Math.max(eyeBlinkL, p2 < 0.4 ? p2 / 0.4 * 0.7 : (1 - p2) / 0.6 * 0.7);
   }
 
-  // Eyebrow: subtle raise when speaking emphatically
-  const eyeBrowRaise = isSpeaking ? Math.sin(t * 1.5) * 0.15 + 0.05 : Math.sin(t * 0.4) * 0.03;
+  // Right eye: slight asymmetry — blinks ~30ms later
+  const blinkPhaseR = ((t + 0.03) % (blinkCycle * 1.05)) / (blinkCycle * 1.05);
+  let eyeBlinkR = 0;
+  if (blinkPhaseR < blinkDuration) {
+    const pr = blinkPhaseR / blinkDuration;
+    eyeBlinkR = pr < 0.4 ? pr / 0.4 : (1 - pr) / 0.6;
+  }
+
+  // Eyebrows — expressivity
+  let eyeBrowRaise: number;
+  if (isSpeaking) {
+    // Speaking: emphatic raises on stress points (simulated with layered sine)
+    eyeBrowRaise = (
+      Math.sin(t * 1.8) * 0.12 +
+      Math.sin(t * 3.2 + 0.5) * 0.06 +
+      0.04 // slight default raise when engaged
+    );
+  } else {
+    // Idle: very subtle micro-expressions
+    eyeBrowRaise = Math.sin(t * 0.3 + 0.7) * 0.03;
+  }
 
   return {
     headRotX,
     headRotY,
     headRotZ,
-    eyeBlinkL: eyeBlink,
+    eyeBlinkL,
     eyeBlinkR,
     eyeBrowRaise,
     breathScale,
@@ -338,21 +373,30 @@ function deformMesh(
       dy -= faceAnim.eyeBrowRaise * 3 * browInf;
     }
 
+    // ── Breathing: subtle vertical shift in chest/shoulder area ──
+    if (v > 0.85) {
+      const breathInf = (v - 0.85) / 0.15;
+      dy -= (faceAnim.breathScale - 1) * 200 * breathInf; // chest rises on inhale
+    }
+
     // ── Head rotation (applied globally with center pivot) ──
-    const pivotU = 0.5, pivotV = 0.5;
+    const pivotU = 0.5, pivotV = 0.42; // pivot slightly above center (neck area)
     const relU = u - pivotU;
     const relV = v - pivotV;
 
+    // Weight: head/face moves more than shoulders
+    const headWeight = Math.max(0, 1 - v * 0.8); // 1.0 at top, ~0.2 at bottom
+
     // Yaw: horizontal perspective shift
-    dx += faceAnim.headRotY * relU * 8;
+    dx += faceAnim.headRotY * relU * 10 * headWeight;
     // Pitch: vertical perspective shift
-    dy += faceAnim.headRotX * relV * 6;
+    dy += faceAnim.headRotX * relV * 8 * headWeight;
     // Roll: rotation
     const rollRad = faceAnim.headRotZ * Math.PI / 180;
     const rotDx = relU * Math.cos(rollRad) - relV * Math.sin(rollRad) - relU;
     const rotDy = relU * Math.sin(rollRad) + relV * Math.cos(rollRad) - relV;
-    dx += rotDx * w * 0.01;
-    dy += rotDy * h * 0.01;
+    dx += rotDx * w * 0.015 * headWeight;
+    dy += rotDy * h * 0.015 * headWeight;
 
     deformed.push([bx + dx, by + dy]);
   }
@@ -453,6 +497,7 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
   const startTimeRef = useRef(0);
   const isActiveRef = useRef(false);
   const connectedAudioRef = useRef<HTMLAudioElement | null>(null);
+  const renderFrameRef = useRef<(() => void) | null>(null);
 
   // Create canvas lazily
   const getCanvas = useCallback((): HTMLCanvasElement | null => {
@@ -465,7 +510,7 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
     return canvasRef.current;
   }, []);
 
-  // Set portrait image source
+  // Set portrait image source — starts idle animation as soon as image loads
   const setPortraitSrc = useCallback((src: string) => {
     if (!imgRef.current) {
       imgRef.current = new Image();
@@ -484,13 +529,22 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
           ctx.drawImage(imgRef.current, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         }
       }
+      // Auto-start idle animation (breathing, blinking) immediately
+      // The face should be ALIVE from the moment it loads, not waiting for speech
+      if (!rafRef.current && renderFrameRef.current) {
+        setIsRendering(true);
+        isActiveRef.current = false; // not lip-syncing yet, just idle
+        startTimeRef.current = performance.now();
+        lastFpsTimeRef.current = performance.now();
+        rafRef.current = requestAnimationFrame(renderFrameRef.current);
+      }
     };
     imgRef.current.src = src;
   }, [getCanvas]);
 
-  // Main render loop
+  // Main render loop — runs continuously for idle animation + lip-sync
   const renderFrame = useCallback(() => {
-    if (!isActiveRef.current) return;
+    // Render loop runs as long as portrait is loaded (for idle breathing/blinking)
 
     const canvas = canvasRef.current;
     const img = imgRef.current;
@@ -511,9 +565,10 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
     const now = performance.now();
     const elapsed = now - startTimeRef.current;
 
-    // Get audio data
+    // Get audio data — only extract visemes when actively lip-syncing
     let newViseme = visemeRef.current;
-    if (analyser) {
+    const isSpeaking = isActiveRef.current && analyser;
+    if (isSpeaking) {
       const freqData = new Uint8Array(analyser.frequencyBinCount);
       const timeData = new Uint8Array(analyser.frequencyBinCount);
       analyser.getByteFrequencyData(freqData);
@@ -522,10 +577,22 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
       const sampleRate = audioContextRef.current?.sampleRate || 44100;
       newViseme = extractViseme(freqData, timeData, sampleRate, visemeRef.current);
       visemeRef.current = newViseme;
+    } else {
+      // Smoothly decay to closed mouth when not speaking
+      const decay = 0.15;
+      newViseme = {
+        jawOpen: visemeRef.current.jawOpen * (1 - decay),
+        mouthWidth: visemeRef.current.mouthWidth * (1 - decay),
+        lipPucker: visemeRef.current.lipPucker * (1 - decay),
+        upperLipRaise: visemeRef.current.upperLipRaise * (1 - decay),
+        lowerLipDrop: visemeRef.current.lowerLipDrop * (1 - decay),
+        tongueOut: visemeRef.current.tongueOut * (1 - decay),
+      };
+      visemeRef.current = newViseme;
     }
 
-    // Compute face animation
-    const anim = computeIdleAnim(elapsed, analyser !== null);
+    // Compute face animation — richer when speaking
+    const anim = computeIdleAnim(elapsed, Boolean(isSpeaking));
 
     // Deform mesh
     const deformedVertices = deformMesh(
@@ -554,92 +621,132 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
     rafRef.current = requestAnimationFrame(renderFrame);
   }, []);
 
-  // Start lip-sync with an audio element
+  // Store renderFrame in a ref so setPortraitSrc (defined before renderFrame)
+  // can schedule the render loop on image load.
+  renderFrameRef.current = renderFrame;
+
+  // Start lip-sync with an audio element.
+  // CRITICAL: createMediaElementSource() can only be called ONCE per element.
+  // On subsequent calls we REUSE the existing source→analyser→destination chain.
   const startLipSync = useCallback((audioElement: HTMLAudioElement) => {
+    // If portrait hasn't loaded yet, defer — retry when it loads
     if (!imgLoadedRef.current) {
-      console.warn('[LipSync] Portrait not loaded yet');
+      console.log('[LipSync] Portrait not loaded yet, deferring startLipSync');
+      // Queue: when image loads, auto-start
+      const prevOnload = imgRef.current?.onload;
+      if (imgRef.current) {
+        imgRef.current.onload = function (this: GlobalEventHandlers, ev: Event) {
+          if (typeof prevOnload === 'function') {
+            (prevOnload as (this: GlobalEventHandlers, ev: Event) => void).call(this, ev);
+          }
+          // Now that image is loaded, retry
+          startLipSyncInner(audioElement);
+        };
+      }
       return;
     }
 
-    // Avoid reconnecting the same element
-    if (connectedAudioRef.current === audioElement && isActiveRef.current) return;
+    startLipSyncInner(audioElement);
+  }, []);
 
-    // Create AudioContext + AnalyserNode
+  const startLipSyncInner = useCallback((audioElement: HTMLAudioElement) => {
+    // Already running with this element? Just re-activate analyser
+    if (connectedAudioRef.current === audioElement && isActiveRef.current && analyserRef.current) {
+      return;
+    }
+
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new AudioContext();
       }
       const ctx = audioContextRef.current;
 
-      // Disconnect previous source
-      if (sourceNodeRef.current) {
-        try { sourceNodeRef.current.disconnect(); } catch {}
-        sourceNodeRef.current = null;
-      }
-
-      // Create source from audio element (can only be done once per element)
-      let source: MediaElementAudioSourceNode;
-      if (connectedAudioRef.current === audioElement && sourceNodeRef.current) {
-        source = sourceNodeRef.current;
-      } else {
-        try {
-          source = ctx.createMediaElementSource(audioElement);
-        } catch {
-          // Already connected - reuse the existing connection
-          console.log('[LipSync] Audio element already connected to AudioContext');
-          // Just ensure analyser is set up
-          if (!analyserRef.current) {
-            analyserRef.current = ctx.createAnalyser();
-            analyserRef.current.fftSize = 512;
-            analyserRef.current.smoothingTimeConstant = 0.7;
-          }
-          setIsActive(true);
-          setIsRendering(true);
-          isActiveRef.current = true;
-          startTimeRef.current = performance.now();
-          lastFpsTimeRef.current = performance.now();
-          rafRef.current = requestAnimationFrame(renderFrame);
-          return;
-        }
-      }
-
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.7;
-
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
-
-      sourceNodeRef.current = source;
-      analyserRef.current = analyser;
-      audioElementRef.current = audioElement;
-      connectedAudioRef.current = audioElement;
-
       if (ctx.state === 'suspended') {
         void ctx.resume();
       }
+
+      // FIRST TIME: create source + analyser + connect chain
+      // SUBSEQUENT: reuse existing source, just reconnect analyser
+      if (connectedAudioRef.current !== audioElement) {
+        // New audio element — create fresh source
+        if (sourceNodeRef.current) {
+          try { sourceNodeRef.current.disconnect(); } catch {}
+          sourceNodeRef.current = null;
+        }
+        if (analyserRef.current) {
+          try { analyserRef.current.disconnect(); } catch {}
+          analyserRef.current = null;
+        }
+
+        let source: MediaElementAudioSourceNode;
+        try {
+          source = ctx.createMediaElementSource(audioElement);
+        } catch {
+          // Element already has a source from a previous AudioContext —
+          // this happens if AudioContext was GC'd but element persists.
+          // We cannot reconnect; just run idle animation without audio data.
+          console.warn('[LipSync] Cannot create MediaElementSource (element already owned)');
+          setIsActive(true);
+          setIsRendering(true);
+          isActiveRef.current = true;
+          if (!rafRef.current) {
+            startTimeRef.current = performance.now();
+            lastFpsTimeRef.current = performance.now();
+            rafRef.current = requestAnimationFrame(renderFrame);
+          }
+          return;
+        }
+
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.7;
+
+        // CRITICAL: source → analyser → destination
+        // This keeps audio playing through speakers AND feeds analyser
+        source.connect(analyser);
+        analyser.connect(ctx.destination);
+
+        sourceNodeRef.current = source;
+        analyserRef.current = analyser;
+        audioElementRef.current = audioElement;
+        connectedAudioRef.current = audioElement;
+      } else {
+        // SAME element, reconnecting after stopLipSync nulled the analyser.
+        // Source is still connected. Just restore analyser ref.
+        if (!analyserRef.current && sourceNodeRef.current) {
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 512;
+          analyser.smoothingTimeConstant = 0.7;
+
+          // Reconnect: source → analyser → destination
+          sourceNodeRef.current.disconnect();
+          sourceNodeRef.current.connect(analyser);
+          analyser.connect(ctx.destination);
+          analyserRef.current = analyser;
+        }
+      }
     } catch (err) {
-      console.warn('[LipSync] AudioContext setup failed, running without audio analysis:', err);
-      // Still run the animation loop for idle animations
+      console.warn('[LipSync] AudioContext setup failed:', err);
     }
 
     setIsActive(true);
     setIsRendering(true);
     isActiveRef.current = true;
+
+    // Start render loop if not already running
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
     startTimeRef.current = performance.now();
     lastFpsTimeRef.current = performance.now();
-
-    // Start render loop
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(renderFrame);
   }, [renderFrame]);
 
-  // Stop lip-sync (keeps idle animation going for liveness)
+  // Stop lip-sync but keep face alive with idle animation
   const stopLipSync = useCallback(() => {
-    // Don't disconnect audio (keep for future use) but stop the analyser
-    analyserRef.current = null;
+    // DON'T null the analyser — keep the audio graph intact.
+    // Just mark as not actively lip-syncing so renderFrame uses idle visemes.
+    setIsActive(false);
 
-    // Reset viseme to closed mouth
+    // Smoothly close mouth (don't null analyserRef — it stays connected for next speak)
     const closedViseme: VisemeState = {
       jawOpen: 0, mouthWidth: 0, lipPucker: 0,
       upperLipRaise: 0, lowerLipDrop: 0, tongueOut: 0,
@@ -648,9 +755,7 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
     setViseme(closedViseme);
 
     // Keep rendering for idle animation (breathing, blinking)
-    // but mark as not actively lip-syncing
-    setIsActive(false);
-    // Don't stop the render loop — keep the face alive
+    // The render loop continues — face stays alive
   }, []);
 
   // Cleanup on unmount
