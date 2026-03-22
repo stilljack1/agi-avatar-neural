@@ -77,6 +77,31 @@ function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+function getSessionStorageKey(actor: ActorId): string {
+  return `agi1.neural.conversation.${actor}`;
+}
+
+function readStoredConversationId(actor: ActorId): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(getSessionStorageKey(actor)) || '';
+  } catch {
+    return '';
+  }
+}
+
+function persistConversationId(actor: ActorId, conversationId: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    const key = getSessionStorageKey(actor);
+    if (conversationId) {
+      window.localStorage.setItem(key, conversationId);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {}
+}
+
 function normalizeRuntimeTruth(data: any): RuntimeTruth | null {
   if (!data || typeof data !== 'object') return null;
 
@@ -284,6 +309,7 @@ export default function NeuralPage() {
   const [memoryLoaded, setMemoryLoaded] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [runtimeTruth, setRuntimeTruth] = useState<RuntimeTruth | null>(null);
+  const [conversationId, setConversationId] = useState('');
 
   // Voice mode: 'idle' | 'recording' | 'processing'
   const [voiceMode, setVoiceMode] = useState<'idle' | 'recording' | 'processing'>('idle');
@@ -468,6 +494,14 @@ export default function NeuralPage() {
   }, []);
 
   useEffect(() => {
+    setConversationId(readStoredConversationId(actor));
+  }, [actor]);
+
+  useEffect(() => {
+    persistConversationId(actor, conversationId);
+  }, [actor, conversationId]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const url = new URL(window.location.href);
     if (url.searchParams.get('actor') === actor) return;
@@ -503,6 +537,7 @@ export default function NeuralPage() {
 
       const result = await groqActions.sendVoiceMessage(actor, {
         userId,
+        sessionId: conversationId || undefined,
         visionSummary: vision.lastAnalysis || undefined,
       });
 
@@ -512,12 +547,17 @@ export default function NeuralPage() {
           appendMessage('assistant', result.response);
           await speakWithLipSync(result.response, actor);
         }
+        if (result.conversationId) {
+          setConversationId(result.conversationId);
+        }
         setMemoryLoaded(true);
       }
       setVoiceMode('idle');
       micStreamRef.current = null;
     } else {
       try {
+        groqActions.stopSpeaking();
+        lipSyncActions.stopLipSync();
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
@@ -533,6 +573,8 @@ export default function NeuralPage() {
 
   const handleLiveCallToggle = useCallback(async () => {
     await groqActions.unlockAudio();
+    groqActions.stopSpeaking();
+    lipSyncActions.stopLipSync();
 
     if (liveCallActive || liveRoom.roomStatus === 'connecting' || liveRoom.roomStatus === 'requesting_media' || liveRoom.roomStatus === 'reconnecting') {
       await liveRoomActions.disconnect();
@@ -540,7 +582,7 @@ export default function NeuralPage() {
     }
 
     await liveRoomActions.connect(actor);
-  }, [actor, groqActions, liveCallActive, liveRoom.roomStatus, liveRoomActions]);
+  }, [actor, groqActions, lipSyncActions, liveCallActive, liveRoom.roomStatus, liveRoomActions]);
 
   // ============================================================
   // Text chat → Groq LLM → Groq Orpheus TTS + Lip Sync
@@ -549,6 +591,8 @@ export default function NeuralPage() {
   const handleSend = useCallback(async () => {
     const text = draft.trim();
     if (!text) return;
+    groqActions.stopSpeaking();
+    lipSyncActions.stopLipSync();
     setDraft('');
     appendMessage('user', text);
 
@@ -590,8 +634,8 @@ export default function NeuralPage() {
           message: text,
           activeAgent: actor,
           userId,
-          sessionId: liveRoom.sessionId || undefined,
-          conversationId: liveRoom.sessionId || undefined,
+          sessionId: conversationId || liveRoom.sessionId || undefined,
+          conversationId: conversationId || liveRoom.sessionId || undefined,
           callSessionId: liveRoom.sessionId || undefined,
           mode: liveCallActive ? 'voice' : 'text',
           mediaMode: visualPipelineReady ? 'video' : liveCallActive ? 'voice' : 'text',
@@ -610,6 +654,10 @@ export default function NeuralPage() {
       if (!response.ok) throw new Error(`chat_failed:${response.status}`);
       const data = await response.json();
       const reply = data.response || cfg.greeting;
+      const nextConversationId = data.conversationId || data.sessionId || conversationId || liveRoom.sessionId || '';
+      if (nextConversationId) {
+        setConversationId(nextConversationId);
+      }
       appendMessage('assistant', reply);
       await speakWithLipSync(reply, actor);
       setMemoryLoaded(true);
@@ -620,9 +668,11 @@ export default function NeuralPage() {
   }, [
     actor,
     appendMessage,
+    conversationId,
     draft,
     groqActions,
     liveCallActive,
+    lipSyncActions,
     liveRoom.isAgentConnected,
     liveRoom.micLive,
     liveRoom.sessionId,
@@ -644,6 +694,7 @@ export default function NeuralPage() {
     setMessages([]);
     setMemoryLoaded(false);
     setVoiceMode('idle');
+    setConversationId(readStoredConversationId(nextActor));
     setActor(nextActor);
   }, [actor, groqActions, lipSyncActions, liveRoomActions]);
 
@@ -706,7 +757,7 @@ export default function NeuralPage() {
 
         <div style={{ display: 'flex', gap: 4, padding: 3, background: 'rgba(255,255,255,0.04)', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)' }}>
           {(['jack', 'julia'] as ActorId[]).map((a) => (
-            <button key={a} onClick={() => switchActor(a)} style={{
+            <button key={a} data-testid={`actor-${a}`} onClick={() => switchActor(a)} style={{
               padding: '6px 18px', borderRadius: 999, border: 'none',
               background: a === actor ? AVATAR_CONFIG[a].accent : 'transparent',
               color: a === actor ? '#000' : '#96a0af',
@@ -715,7 +766,7 @@ export default function NeuralPage() {
           ))}
         </div>
 
-        <button onClick={() => setShowStatus((c) => !c)} style={{
+        <button data-testid="toggle-status" onClick={() => setShowStatus((c) => !c)} style={{
           display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
           background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
           borderRadius: 10, color: '#96a0af', fontSize: '0.74rem', cursor: 'pointer',
@@ -727,7 +778,7 @@ export default function NeuralPage() {
       </header>
 
       {showStatus && (
-        <div style={{ padding: '12px 20px', background: 'rgba(10,12,16,0.96)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: '0.75rem', color: '#8b95a3' }}>
+        <div data-testid="status-panel" style={{ padding: '12px 20px', background: 'rgba(10,12,16,0.96)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: '0.75rem', color: '#8b95a3' }}>
           <StatusDot
             label="Realtime"
             active={liveCallActive || Boolean(runtimeTruth?.full_duplex_live)}
@@ -799,7 +850,7 @@ export default function NeuralPage() {
           />
 
           {/* Presence badge */}
-          <div style={{
+          <div data-testid="presence-state" style={{
             position: 'absolute', top: 24, left: 24, zIndex: 10,
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '7px 14px', borderRadius: 999,
@@ -821,7 +872,7 @@ export default function NeuralPage() {
 
           {/* Camera PiP */}
           {vision.cameraStream && (
-            <div style={{
+            <div data-testid="camera-pip" style={{
               position: 'absolute', top: 24, right: 24, zIndex: 10,
               width: 144, height: 104, borderRadius: 14, overflow: 'hidden',
               border: '1px solid rgba(255,255,255,0.22)', boxShadow: '0 10px 30px rgba(0,0,0,0.36)', background: '#091018',
@@ -850,13 +901,14 @@ export default function NeuralPage() {
             onClick={() => { void handleLiveCallToggle(); }}
             disabled={liveRoom.roomStatus === 'connecting' || liveRoom.roomStatus === 'requesting_media'}
             large
+            dataTestId="start-live-call"
           />
-          <QuickControl icon={groq.muted ? <VolumeX size={16} /> : <Volume2 size={16} />} label={groq.muted ? 'Unmute' : 'Mute'} active={!groq.muted} onClick={() => groqActions.setMuted(!groq.muted)} />
+          <QuickControl icon={groq.muted ? <VolumeX size={16} /> : <Volume2 size={16} />} label={groq.muted ? 'Unmute' : 'Mute'} active={!groq.muted} onClick={() => groqActions.setMuted(!groq.muted)} dataTestId="toggle-output-audio" />
           <QuickControl
             icon={voiceMode === 'recording' ? <MicOff size={16} /> : <Mic size={16} />}
             label={liveCallActive ? 'Push-to-talk off' : voiceMode === 'recording' ? 'Stop' : voiceMode === 'processing' ? 'Processing...' : `Talk to ${cfg.name}`}
             active={voiceMode === 'recording'} accent={voiceMode === 'recording' ? '#ef4444' : cfg.accent}
-            onClick={() => { void handleMicToggle(); }} disabled={voiceMode === 'processing' || liveCallActive} large
+            onClick={() => { void handleMicToggle(); }} disabled={voiceMode === 'processing' || liveCallActive} large dataTestId="push-to-talk"
           />
           {liveCallActive && (
             <QuickControl
@@ -865,6 +917,7 @@ export default function NeuralPage() {
               active={liveRoom.micLive}
               accent={cfg.accent}
               onClick={() => { liveRoomActions.toggleMic(); }}
+              dataTestId="toggle-call-mic"
             />
           )}
           {liveRoom.speakerBlocked && (
@@ -874,12 +927,13 @@ export default function NeuralPage() {
               active={false}
               accent="#22c55e"
               onClick={() => { void liveRoomActions.enableSpeakerAudio(); }}
+              dataTestId="enable-call-audio"
             />
           )}
           <QuickControl icon={visualPipelineReady ? <CameraOff size={16} /> : <Camera size={16} />} label={visualPipelineReady ? 'Camera off' : 'Camera on'} active={visualPipelineReady} accent={cfg.accent}
-            onClick={() => { if (visualPipelineReady || vision.visionState === 'paused') visionActions.stopVision(); else void visionActions.startCamera(); }} />
+            onClick={() => { if (visualPipelineReady || vision.visionState === 'paused') visionActions.stopVision(); else void visionActions.startCamera(); }} dataTestId="toggle-camera" />
           <QuickControl icon={<Monitor size={16} />} label={vision.visionMode === 'screen' ? 'Stop' : 'Screen'} active={vision.visionMode === 'screen'} accent={cfg.accent}
-            onClick={() => { if (vision.visionMode === 'screen') visionActions.stopVision(); else void visionActions.startScreenShare(); }} />
+            onClick={() => { if (vision.visionMode === 'screen') visionActions.stopVision(); else void visionActions.startScreenShare(); }} dataTestId="toggle-screen" />
         </div>
 
         {/* Chat */}
@@ -893,7 +947,7 @@ export default function NeuralPage() {
               </div>
             )}
             {messages.map((msg) => (
-              <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', padding: '0 4px' }}>
+              <div key={msg.id} data-testid={`message-${msg.role}`} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', padding: '0 4px' }}>
                 <div style={{
                   maxWidth: '80%', padding: '12px 16px', borderRadius: 18, fontSize: '0.92rem', lineHeight: 1.55,
                   ...(msg.role === 'user' ? { background: 'rgba(255,255,255,0.08)', borderBottomRightRadius: 6, color: '#E8ECF2' }
@@ -923,12 +977,12 @@ export default function NeuralPage() {
 
           {/* Input */}
           <div style={{ display: 'flex', gap: 8, padding: '12px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            <input ref={inputRef} value={draft} onChange={(e) => setDraft(e.target.value)}
+              <input data-testid="neural-input" ref={inputRef} value={draft} onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend(); } }}
               placeholder={`Message ${cfg.name}...`}
               style={{ flex: 1, padding: '12px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: '#E8E8E8', fontSize: '0.92rem', outline: 'none', fontFamily: 'inherit' }}
             />
-            <button onClick={() => { void handleSend(); }} disabled={!draft.trim() || isTyping}
+            <button data-testid="neural-send" onClick={() => { void handleSend(); }} disabled={!draft.trim() || isTyping}
               style={{ padding: '12px 16px', borderRadius: 14, border: 'none', background: draft.trim() ? cfg.accent : 'rgba(255,255,255,0.06)', color: draft.trim() ? '#000' : '#5d6674', cursor: draft.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
               <Send size={18} />
             </button>
@@ -958,12 +1012,12 @@ function StatusDot({ label, active, detail }: { label: string; active: boolean; 
   );
 }
 
-function QuickControl({ icon, label, active, accent, onClick, disabled, large }: {
-  icon: React.ReactNode; label: string; active: boolean; accent?: string; onClick: () => void; disabled?: boolean; large?: boolean;
+function QuickControl({ icon, label, active, accent, onClick, disabled, large, dataTestId }: {
+  icon: React.ReactNode; label: string; active: boolean; accent?: string; onClick: () => void; disabled?: boolean; large?: boolean; dataTestId?: string;
 }) {
   const color = accent || '#00AEEF';
   return (
-    <button onClick={onClick} disabled={disabled} title={label} style={{
+    <button data-testid={dataTestId} onClick={onClick} disabled={disabled} title={label} style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
       padding: large ? '14px 20px' : '10px 14px', borderRadius: 14,
       border: `1px solid ${active ? `${color}55` : 'rgba(255,255,255,0.08)'}`,

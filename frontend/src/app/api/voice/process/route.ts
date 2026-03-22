@@ -142,12 +142,16 @@ export async function POST(request: NextRequest) {
 
     // 2. Generate response via Groq LLM with conversation memory
     const response = await chatWithGroq(transcript, actor, userId, visionSummary || undefined);
+    const conversationId = sessionId || callSessionId || '';
 
     return NextResponse.json({
       status: 'ok',
       transcript,
       response,
       actor,
+      sessionId: conversationId,
+      conversationId,
+      callSessionId,
       provider: 'groq',
       timestamp: new Date().toISOString(),
     });
