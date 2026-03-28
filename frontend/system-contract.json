@@ -1,0 +1,25 @@
+{
+  "domains": {
+    "product": "https://agi1.org",
+    "neural": "https://agi1.org/neural",
+    "jack": "https://agi1.org/jack",
+    "julia": "https://agi1.org/julia",
+    "api": "https://api.agi1.org",
+    "apiWs": "wss://api.agi1.org",
+    "corporate": "https://fairgroupai.com"
+  },
+  "topology": {
+    "publicEdge": "hostinger_ec2_nginx",
+    "activeHost": "18.227.183.151",
+    "neuralApp": "agi-avatars",
+    "apiService": "agi1-api",
+    "stateBackend": "aws"
+  },
+  "agents": {
+    "jack": "executive_digital_human",
+    "julia": "executive_digital_human",
+    "singularity": "execution_orchestrator",
+    "openclawV2": "general_manager",
+    "aegis": "safety_guardrail_sentinel"
+  }
+}

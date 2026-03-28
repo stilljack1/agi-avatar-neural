@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getConversation } from '../../../../lib/conversation-store';
 import { getAgiApiBase } from '../../../../lib/api-base';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/chat/history
  * Returns recent conversation history for a user+actor pair.

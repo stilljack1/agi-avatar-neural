@@ -3,6 +3,8 @@ import { auditWorkspaceEvent } from '../../_lib/audit';
 import { GOOGLE_WORKSPACE_SCOPES } from '../../_lib/scopes';
 import { setTokens, type StoredTokens } from '../store';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/workspace/oauth/callback
  * Google redirects here after user grants consent.

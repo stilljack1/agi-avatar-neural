@@ -8,7 +8,10 @@ import { getAgiApiBase } from '../../../../lib/api-base';
  * Response text is spoken client-side via browser TTS.
  */
 
+const XAI_API_KEY = process.env.XAI_API_KEY || '';
 const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.GROQ_LLAMA_KEY || '';
+const XAI_MODEL = process.env.XAI_MODEL || 'grok-4.20';
+const LLM_PROVIDER = XAI_API_KEY ? 'xai' : 'groq';
 
 const AVATAR_PROMPTS: Record<string, string> = {
   jack: `You are Jack. You're a sharp, grounded, confident AI who helps people think clearly about strategy, tech, health, money, and big decisions. Talk like a trusted friend who happens to be brilliant — calm, direct, warm, occasionally witty. Never sound like a brochure or sales pitch. Keep it to 2-3 sentences max since your replies are spoken aloud. If someone says "hey" or "hello", just say hi back naturally — don't introduce yourself with your full title. Be human. You remember everything from this conversation.`,
@@ -125,10 +128,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'missing_message' }, { status: 400 });
     }
 
-    if (!GROQ_API_KEY) {
+    if (!XAI_API_KEY && !GROQ_API_KEY) {
       return NextResponse.json({
-        error: 'groq_not_configured',
-        detail: 'Set GROQ_API_KEY or GROQ_LLAMA_KEY environment variable.',
+        error: 'llm_not_configured',
+        detail: 'Set XAI_API_KEY (preferred) or GROQ_API_KEY environment variable.',
       }, { status: 503 });
     }
 
@@ -146,26 +149,65 @@ export async function POST(request: NextRequest) {
     // Add current message
     contextMessages.push({ role: 'user', content: message.trim() });
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: contextMessages,
-        max_tokens: 256,
-        temperature: 0.8,
-      }),
-    });
+    // Primary: xAI Grok. Fallback: Groq Llama.
+    let reply = '';
+    let usedProvider = LLM_PROVIDER;
 
-    if (!response.ok) {
-      throw new Error(`groq_llm_error:${response.status}`);
+    if (XAI_API_KEY) {
+      try {
+        const xaiRes = await fetch('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${XAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: XAI_MODEL,
+            messages: contextMessages,
+            max_tokens: 512,
+            temperature: 0.8,
+          }),
+        });
+
+        if (xaiRes.ok) {
+          const xaiData = await xaiRes.json();
+          reply = xaiData.choices?.[0]?.message?.content || '';
+          usedProvider = 'xai';
+        } else {
+          console.warn(`[chat/avatar] xAI Grok returned ${xaiRes.status}, falling back to Groq`);
+        }
+      } catch (xaiErr) {
+        console.warn('[chat/avatar] xAI Grok failed, falling back to Groq:', xaiErr);
+      }
     }
 
-    const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content || '';
+    if (!reply && GROQ_API_KEY) {
+      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: process.env.GROQ_CHAT_MODEL || 'qwen/qwen3-32b',
+          messages: contextMessages,
+          max_tokens: 256,
+          temperature: 0.8,
+        }),
+      });
+
+      if (!groqRes.ok) {
+        throw new Error(`groq_llm_error:${groqRes.status}`);
+      }
+
+      const groqData = await groqRes.json();
+      reply = groqData.choices?.[0]?.message?.content || '';
+      usedProvider = 'groq';
+    }
+
+    if (!reply) {
+      throw new Error('no_llm_response: both xAI and Groq failed');
+    }
 
     // Save to conversation memory
     addToConversation(user_id, actor, message.trim(), reply);
@@ -175,7 +217,7 @@ export async function POST(request: NextRequest) {
       message: message.trim(),
       response: reply,
       actor,
-      provider: 'groq',
+      provider: usedProvider,
       memory: true,
       conversation_length: history.length + 2,
       timestamp: new Date().toISOString(),

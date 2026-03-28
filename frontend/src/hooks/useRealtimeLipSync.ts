@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AvatarRenderCalibration } from '../lib/avatars';
 
 /**
  * Real-Time Browser Lip-Sync Engine
@@ -41,6 +42,16 @@ export type FaceAnimState = {
   eyeBlinkR: number;   // 0-1
   eyeBrowRaise: number; // -1 to 1
   breathScale: number;  // subtle breathing
+  gazeX: number;        // -1 to 1
+  gazeY: number;        // -1 to 1
+};
+
+export type AttentionState = {
+  mode: 'idle' | 'listening' | 'thinking' | 'speaking' | 'analyzing';
+  engaged: boolean;
+  targetX: number; // 0..1
+  targetY: number; // 0..1
+  listeningIntensity: number; // 0..1
 };
 
 export type LipSyncEngineState = {
@@ -56,6 +67,8 @@ export type LipSyncEngineActions = {
   stopLipSync: () => void;
   getCanvas: () => HTMLCanvasElement | null;
   setPortraitSrc: (src: string) => void;
+  setRenderCalibration: (calibration: AvatarRenderCalibration) => void;
+  setAttentionState: (next: Partial<AttentionState>) => void;
 };
 
 // ================================================================
@@ -129,7 +142,7 @@ function lerp(a: number, b: number, t: number): number {
 // Face idle animation (blinks, breathing, micro-movements)
 // ================================================================
 
-function computeIdleAnim(time: number, isSpeaking: boolean): FaceAnimState {
+function computeIdleAnim(time: number, isSpeaking: boolean, attention: AttentionState): FaceAnimState {
   const t = time / 1000;
 
   // Breathing: subtle chest/shoulder rise. Deeper when idle, shallower when speaking.
@@ -140,7 +153,8 @@ function computeIdleAnim(time: number, isSpeaking: boolean): FaceAnimState {
   // Head movement — layered Perlin-like motion for natural feel
   // Speaking: more movement (nods for emphasis, slight turns)
   // Idle: gentle drift, occasional recentering
-  const speakMult = isSpeaking ? 2.0 : 0.6;
+  const modeBoost = attention.mode === 'listening' ? 1.15 : attention.mode === 'analyzing' ? 0.8 : 1;
+  const speakMult = (isSpeaking ? 2.0 : 0.6) * modeBoost;
   const headRotX = (
     Math.sin(t * 0.25) * 0.4 +
     Math.sin(t * 0.6 + 1.7) * 0.25 +
@@ -191,10 +205,19 @@ function computeIdleAnim(time: number, isSpeaking: boolean): FaceAnimState {
       Math.sin(t * 3.2 + 0.5) * 0.06 +
       0.04 // slight default raise when engaged
     );
+  } else if (attention.mode === 'listening') {
+    eyeBrowRaise = 0.03 + Math.sin(t * 1.2) * 0.04 * Math.max(0.35, attention.listeningIntensity);
+  } else if (attention.mode === 'analyzing') {
+    eyeBrowRaise = 0.02 + Math.sin(t * 0.6) * 0.02;
   } else {
     // Idle: very subtle micro-expressions
     eyeBrowRaise = Math.sin(t * 0.3 + 0.7) * 0.03;
   }
+
+  const centeredTargetX = (attention.targetX - 0.5) * 2;
+  const centeredTargetY = (attention.targetY - 0.5) * 2;
+  const gazeX = lerp(0, centeredTargetX, attention.engaged ? 0.65 : 0.35);
+  const gazeY = lerp(0, centeredTargetY, attention.engaged ? 0.45 : 0.2);
 
   return {
     headRotX,
@@ -204,6 +227,8 @@ function computeIdleAnim(time: number, isSpeaking: boolean): FaceAnimState {
     eyeBlinkR,
     eyeBrowRaise,
     breathScale,
+    gazeX,
+    gazeY,
   };
 }
 
@@ -298,6 +323,7 @@ function deformMesh(
   h: number,
   viseme: VisemeState,
   faceAnim: FaceAnimState,
+  calibration: AvatarRenderCalibration,
 ): Point[] {
   const deformed: Point[] = [];
 
@@ -310,24 +336,24 @@ function deformMesh(
     // ── Mouth/Jaw deformation ──
     // Distance from mouth center
     const mouthCenterU = 0.5;
-    const mouthCenterV = 0.69;
+    const mouthCenterV = calibration.mouthCenterY;
     const distToMouth = Math.sqrt((u - mouthCenterU) ** 2 + (v - mouthCenterV) ** 2);
     const mouthInfluence = Math.max(0, 1 - distToMouth / 0.2); // falloff radius
 
     if (mouthInfluence > 0) {
       // Jaw open: pull lower mouth vertices down
       if (v > mouthCenterV) {
-        dy += viseme.jawOpen * 12 * mouthInfluence * (v - mouthCenterV) / 0.11;
+        dy += viseme.jawOpen * 12 * calibration.jawScale * mouthInfluence * (v - mouthCenterV) / 0.11;
       }
       // Upper lip raise
       if (v < mouthCenterV && v > mouthCenterV - 0.06) {
-        dy -= viseme.upperLipRaise * 3 * mouthInfluence;
+        dy -= viseme.upperLipRaise * 3 * calibration.upperLipScale * mouthInfluence;
       }
       // Mouth width: push corners outward/inward
       const horizontalDir = u < mouthCenterU ? -1 : 1;
-      dx += viseme.mouthWidth * 5 * mouthInfluence * horizontalDir * Math.abs(u - mouthCenterU) / 0.12;
+      dx += viseme.mouthWidth * 5 * calibration.mouthWidthScale * mouthInfluence * horizontalDir * Math.abs(u - mouthCenterU) / 0.12;
       // Lip pucker: pull corners inward
-      dx -= viseme.lipPucker * 4 * mouthInfluence * horizontalDir * Math.abs(u - mouthCenterU) / 0.12;
+      dx -= viseme.lipPucker * 4 * calibration.lipPuckerScale * mouthInfluence * horizontalDir * Math.abs(u - mouthCenterU) / 0.12;
     }
 
     // ── Jaw region ──
@@ -335,12 +361,12 @@ function deformMesh(
     const distToJaw = Math.abs(v - jawCenterV);
     if (v > 0.65 && distToJaw < 0.1) {
       const jawInfluence = 1 - distToJaw / 0.1;
-      dy += viseme.jawOpen * 8 * jawInfluence;
+      dy += viseme.jawOpen * 8 * calibration.lowerLipScale * jawInfluence;
     }
 
     // ── Eye blinks ──
-    const leftEyeU = 0.37, leftEyeV = 0.45;
-    const rightEyeU = 0.63, rightEyeV = 0.45;
+    const leftEyeU = 0.37, leftEyeV = calibration.eyeLineY;
+    const rightEyeU = 0.63, rightEyeV = calibration.eyeLineY;
     const eyeRadius = 0.06;
 
     // Left eye
@@ -352,6 +378,8 @@ function deformMesh(
       } else {
         dy -= faceAnim.eyeBlinkL * 3 * eyeInf; // lower lid up
       }
+      dx += faceAnim.gazeX * 1.8 * calibration.gazeScale * eyeInf;
+      dy += faceAnim.gazeY * 1.2 * calibration.gazeScale * eyeInf;
     }
 
     // Right eye
@@ -363,6 +391,8 @@ function deformMesh(
       } else {
         dy -= faceAnim.eyeBlinkR * 3 * eyeInf;
       }
+      dx += faceAnim.gazeX * 1.8 * calibration.gazeScale * eyeInf;
+      dy += faceAnim.gazeY * 1.2 * calibration.gazeScale * eyeInf;
     }
 
     // ── Eyebrows ──
@@ -370,13 +400,13 @@ function deformMesh(
     if (v > 0.33 && v < 0.42 && u > 0.25 && u < 0.75) {
       const browDist = Math.abs(v - browV);
       const browInf = Math.max(0, 1 - browDist / 0.04);
-      dy -= faceAnim.eyeBrowRaise * 3 * browInf;
+      dy -= faceAnim.eyeBrowRaise * 3 * calibration.browScale * browInf;
     }
 
     // ── Breathing: subtle vertical shift in chest/shoulder area ──
     if (v > 0.85) {
       const breathInf = (v - 0.85) / 0.15;
-      dy -= (faceAnim.breathScale - 1) * 200 * breathInf; // chest rises on inhale
+      dy -= (faceAnim.breathScale - 1) * 200 * calibration.breathScale * breathInf; // chest rises on inhale
     }
 
     // ── Head rotation (applied globally with center pivot) ──
@@ -388,9 +418,11 @@ function deformMesh(
     const headWeight = Math.max(0, 1 - v * 0.8); // 1.0 at top, ~0.2 at bottom
 
     // Yaw: horizontal perspective shift
-    dx += faceAnim.headRotY * relU * 10 * headWeight;
+    dx += faceAnim.headRotY * relU * 10 * calibration.headMotionScale * headWeight;
     // Pitch: vertical perspective shift
-    dy += faceAnim.headRotX * relV * 8 * headWeight;
+    dy += faceAnim.headRotX * relV * 8 * calibration.headMotionScale * headWeight;
+    dx += faceAnim.gazeX * 4.5 * calibration.gazeScale * headWeight;
+    dy += faceAnim.gazeY * 3.2 * calibration.gazeScale * headWeight;
     // Roll: rotation
     const rollRad = faceAnim.headRotZ * Math.PI / 180;
     const rotDx = relU * Math.cos(rollRad) - relV * Math.sin(rollRad) - relU;
@@ -476,7 +508,7 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
   });
   const [faceAnim, setFaceAnim] = useState<FaceAnimState>({
     headRotX: 0, headRotY: 0, headRotZ: 0,
-    eyeBlinkL: 0, eyeBlinkR: 0, eyeBrowRaise: 0, breathScale: 1,
+    eyeBlinkL: 0, eyeBlinkR: 0, eyeBrowRaise: 0, breathScale: 1, gazeX: 0, gazeY: 0,
   });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -498,6 +530,26 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
   const isActiveRef = useRef(false);
   const connectedAudioRef = useRef<HTMLAudioElement | null>(null);
   const renderFrameRef = useRef<(() => void) | null>(null);
+  const calibrationRef = useRef<AvatarRenderCalibration>({
+    jawScale: 1,
+    mouthWidthScale: 1,
+    lipPuckerScale: 1,
+    upperLipScale: 1,
+    lowerLipScale: 1,
+    browScale: 1,
+    gazeScale: 1,
+    headMotionScale: 1,
+    breathScale: 1,
+    mouthCenterY: 0.69,
+    eyeLineY: 0.45,
+  });
+  const attentionRef = useRef<AttentionState>({
+    mode: 'idle',
+    engaged: false,
+    targetX: 0.5,
+    targetY: 0.44,
+    listeningIntensity: 0,
+  });
 
   // Create canvas lazily
   const getCanvas = useCallback((): HTMLCanvasElement | null => {
@@ -592,12 +644,12 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
     }
 
     // Compute face animation — richer when speaking
-    const anim = computeIdleAnim(elapsed, Boolean(isSpeaking));
+    const anim = computeIdleAnim(elapsed, Boolean(isSpeaking), attentionRef.current);
 
     // Deform mesh
     const deformedVertices = deformMesh(
       mesh.vertices, mesh.uvs, CANVAS_WIDTH, CANVAS_HEIGHT,
-      newViseme, anim,
+      newViseme, anim, calibrationRef.current,
     );
 
     // Clear and render
@@ -758,6 +810,26 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
     // The render loop continues — face stays alive
   }, []);
 
+  const setAttentionState = useCallback((next: Partial<AttentionState>) => {
+    attentionRef.current = {
+      ...attentionRef.current,
+      ...next,
+      targetX: typeof next.targetX === 'number'
+        ? Math.max(0, Math.min(1, next.targetX))
+        : attentionRef.current.targetX,
+      targetY: typeof next.targetY === 'number'
+        ? Math.max(0, Math.min(1, next.targetY))
+        : attentionRef.current.targetY,
+      listeningIntensity: typeof next.listeningIntensity === 'number'
+        ? Math.max(0, Math.min(1, next.listeningIntensity))
+        : attentionRef.current.listeningIntensity,
+    };
+  }, []);
+
+  const setRenderCalibration = useCallback((calibration: AvatarRenderCalibration) => {
+    calibrationRef.current = calibration;
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -774,6 +846,6 @@ export function useRealtimeLipSync(): [LipSyncEngineState, LipSyncEngineActions]
 
   return [
     { isActive, isRendering, fps, viseme, faceAnim },
-    { startLipSync, stopLipSync, getCanvas, setPortraitSrc },
+    { startLipSync, stopLipSync, getCanvas, setPortraitSrc, setRenderCalibration, setAttentionState },
   ];
 }

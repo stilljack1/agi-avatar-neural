@@ -1,0 +1,18 @@
+# AGI-1 Auto-Scientist Pipeline Dependencies
+# Install with: pip install -r requirements-research.txt
+
+# Core scientific computing
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.11.0
+matplotlib>=3.7.0
+
+# Avatar frame extraction (optional, for Visual Genome pipeline)
+opencv-python-headless>=4.8.0
+
+# Neural lip-sync server (optional, activate when model is ready)
+# websockets>=12.0
+# torch>=2.0.0
+# torchvision>=0.15.0
+# torchaudio>=2.0.0
+# face-alignment>=1.4.0

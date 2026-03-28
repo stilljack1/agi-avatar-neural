@@ -10,7 +10,9 @@ import { getConversation, addToConversation } from '../../../../lib/conversation
  * 4. Returns transcript + response text (TTS happens client-side)
  */
 
+const XAI_API_KEY = process.env.XAI_API_KEY || '';
 const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.GROQ_LLAMA_KEY || '';
+const XAI_MODEL = process.env.XAI_MODEL || 'grok-4.20';
 
 const AVATAR_PROMPTS: Record<string, string> = {
   jack: `You are Jack. Speak like a real person in a live conversation: grounded, calm, warm, and direct. Keep replies to 2 or 3 short sentences. Do not sound like a brochure, do not announce a title, and do not claim audio, vision, or memory capabilities unless the system context supports them.`,
@@ -39,8 +41,8 @@ async function transcribeWithGroq(audioBuffer: Buffer): Promise<string> {
   return data.text || '';
 }
 
-async function chatWithGroq(transcript: string, actor: string, userId: string, visionSummary?: string): Promise<string> {
-  if (!GROQ_API_KEY) throw new Error('groq_not_configured');
+async function chatWithLLM(transcript: string, actor: string, userId: string, visionSummary?: string): Promise<string> {
+  if (!XAI_API_KEY && !GROQ_API_KEY) throw new Error('llm_not_configured');
 
   // Build conversation context with memory
   const history = getConversation(userId, actor);
@@ -61,26 +63,62 @@ async function chatWithGroq(transcript: string, actor: string, userId: string, v
 
   contextMessages.push({ role: 'user', content: transcript });
 
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: contextMessages,
-      max_tokens: 256,
-      temperature: 0.8,
-    }),
-  });
+  // Primary: xAI Grok. Fallback: Groq Llama.
+  let reply = '';
 
-  if (!response.ok) {
-    throw new Error(`groq_llm_error:${response.status}`);
+  if (XAI_API_KEY) {
+    try {
+      const xaiRes = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${XAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: XAI_MODEL,
+          messages: contextMessages,
+          max_tokens: 512,
+          temperature: 0.8,
+        }),
+      });
+
+      if (xaiRes.ok) {
+        const xaiData = await xaiRes.json();
+        reply = xaiData.choices?.[0]?.message?.content || '';
+      } else {
+        console.warn(`[voice/process] xAI Grok returned ${xaiRes.status}, falling back to Groq`);
+      }
+    } catch (xaiErr) {
+      console.warn('[voice/process] xAI Grok failed, falling back to Groq:', xaiErr);
+    }
   }
 
-  const data = await response.json();
-  const reply = data.choices?.[0]?.message?.content || '';
+  if (!reply && GROQ_API_KEY) {
+    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: process.env.GROQ_CHAT_MODEL || 'qwen/qwen3-32b',
+        messages: contextMessages,
+        max_tokens: 256,
+        temperature: 0.8,
+      }),
+    });
+
+    if (!groqRes.ok) {
+      throw new Error(`groq_llm_error:${groqRes.status}`);
+    }
+
+    const groqData = await groqRes.json();
+    reply = groqData.choices?.[0]?.message?.content || '';
+  }
+
+  if (!reply) {
+    throw new Error('no_llm_response: both xAI and Groq failed');
+  }
 
   // Save to conversation memory
   addToConversation(userId, actor, transcript, reply);
@@ -141,7 +179,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Generate response via Groq LLM with conversation memory
-    const response = await chatWithGroq(transcript, actor, userId, visionSummary || undefined);
+    const response = await chatWithLLM(transcript, actor, userId, visionSummary || undefined);
     const conversationId = sessionId || callSessionId || '';
 
     return NextResponse.json({

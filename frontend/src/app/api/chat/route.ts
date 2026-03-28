@@ -16,7 +16,10 @@ import { getAgiApiBase } from '../../../lib/api-base';
  * acknowledges the research request naturally in its reply.
  */
 
+const XAI_API_KEY = process.env.XAI_API_KEY || '';
 const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.GROQ_LLAMA_KEY || '';
+const XAI_MODEL = process.env.XAI_MODEL || 'grok-4.20';
+const LLM_PROVIDER = XAI_API_KEY ? 'xai' : 'groq';
 
 // Research detection patterns (mirrors src/swarm/router.py)
 const RESEARCH_PATTERNS = [
@@ -74,10 +77,10 @@ export async function POST(request: NextRequest) {
       // Fall back to the local Groq path if the shared backend is unreachable.
     }
 
-    if (!GROQ_API_KEY) {
+    if (!XAI_API_KEY && !GROQ_API_KEY) {
       return NextResponse.json({
-        error: 'groq_not_configured',
-        detail: 'Set GROQ_API_KEY or GROQ_LLAMA_KEY environment variable.',
+        error: 'llm_not_configured',
+        detail: 'Set XAI_API_KEY (preferred) or GROQ_API_KEY environment variable.',
       }, { status: 503 });
     }
 
@@ -138,27 +141,67 @@ export async function POST(request: NextRequest) {
     // Add current message
     contextMessages.push({ role: 'user', content: message.trim() });
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: contextMessages,
-        max_tokens: 256,
-        temperature: 0.8,
-      }),
-    });
+    // Primary: xAI Grok. Fallback: Groq Llama.
+    let reply = '';
+    let usedProvider = LLM_PROVIDER;
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => 'unknown');
-      throw new Error(`groq_llm_error:${response.status}:${errText.slice(0, 200)}`);
+    if (XAI_API_KEY) {
+      try {
+        const xaiRes = await fetch('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${XAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: XAI_MODEL,
+            messages: contextMessages,
+            max_tokens: 512,
+            temperature: 0.8,
+          }),
+        });
+
+        if (xaiRes.ok) {
+          const xaiData = await xaiRes.json();
+          reply = xaiData.choices?.[0]?.message?.content || '';
+          usedProvider = 'xai';
+        } else {
+          console.warn(`[chat] xAI Grok returned ${xaiRes.status}, falling back to Groq`);
+        }
+      } catch (xaiErr) {
+        console.warn('[chat] xAI Grok call failed, falling back to Groq:', xaiErr);
+      }
     }
 
-    const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content || '';
+    // Fallback to Groq if xAI didn't produce a reply
+    if (!reply && GROQ_API_KEY) {
+      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: process.env.GROQ_CHAT_MODEL || 'qwen/qwen3-32b',
+          messages: contextMessages,
+          max_tokens: 256,
+          temperature: 0.8,
+        }),
+      });
+
+      if (!groqRes.ok) {
+        const errText = await groqRes.text().catch(() => 'unknown');
+        throw new Error(`groq_llm_error:${groqRes.status}:${errText.slice(0, 200)}`);
+      }
+
+      const groqData = await groqRes.json();
+      reply = groqData.choices?.[0]?.message?.content || '';
+      usedProvider = 'groq';
+    }
+
+    if (!reply) {
+      throw new Error('no_llm_response: both xAI and Groq failed');
+    }
 
     // Save to conversation memory
     addToConversation(userId, actor, message.trim(), reply);
@@ -168,7 +211,7 @@ export async function POST(request: NextRequest) {
       message: message.trim(),
       response: reply,
       actor,
-      provider: 'groq',
+      provider: usedProvider,
       memory: true,
       conversation_length: history.length + 2,
       timestamp: new Date().toISOString(),

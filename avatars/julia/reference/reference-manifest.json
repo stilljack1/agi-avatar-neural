@@ -1,0 +1,20 @@
+{
+  "actor": "julia",
+  "visual_dna": {
+    "primaryGlow": "#EF2E6A",
+    "secondaryGlow": "#548CF3",
+    "actionAccent": "#FF6A00",
+    "baseObsidian": "#0C0A14",
+    "frostHighlight": "#F4E8F0"
+  },
+  "reference_ready": false,
+  "selected_frames": [],
+  "accepted_frame_count": 0,
+  "extraction_log": {},
+  "likeness_checklist": [
+    "Face shape remains immediately recognizable against the production idle video.",
+    "Eye line and brow geometry match the source identity.",
+    "Lighting stays premium dark with blue/orange accents intact.",
+    "Hair silhouette and wardrobe profile remain stable across fallback renders."
+  ]
+}

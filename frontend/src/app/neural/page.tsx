@@ -16,12 +16,15 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import assetManifest from '../../../asset-manifest.json';
+import { DigitalHumanStage } from '../../components/avatar/DigitalHumanStage';
+import { useAvatarAnimationBridge } from '../../components/avatar/useAvatarAnimationBridge';
+import { useAvatarRuntime } from '../../components/avatar/useAvatarRuntime';
 import { useVisionCapture } from '../../hooks/useVisionCapture';
 import { useGroqVoice } from '../../hooks/useGroqVoice';
 import { useRealtimeLipSync } from '../../hooks/useRealtimeLipSync';
 import { useLiveKitRoom } from '../../hooks/useLiveKitRoom';
 import { getStableBrowserUserId, persistBrowserUserId } from '../../lib/browser-user-id';
+import { jackAvatarProfile, juliaAvatarProfile } from '../../lib/avatars';
 
 type ActorId = 'jack' | 'julia';
 
@@ -35,15 +38,20 @@ type Message = {
 
 type RuntimeTruth = {
   avatar_render_live: boolean;
+  avatar_identity_locked?: boolean;
+  avatar_animation_live?: boolean;
   lip_sync_live: boolean;
   lip_sync_provider?: string;
   lip_sync_realtime_capable?: boolean;
   lip_sync_async_available?: boolean;
   lip_sync_client_integrated?: boolean;
   render_mode?: string;
+  render_engine_target?: string;
+  render_engine_actual?: string;
   voice_output_live: boolean;
   voice_input_live: boolean;
   vision_live: boolean;
+  semantic_vision_live?: boolean;
   memory_live: boolean;
   llm_live: boolean;
   tts_provider?: string;
@@ -53,6 +61,25 @@ type RuntimeTruth = {
   voice_transport?: string;
   full_duplex_live?: boolean;
   personaplex_live?: boolean;
+  audio2face_live?: boolean;
+  render_node_live?: boolean;
+  meta_avatar_live?: boolean;
+  metahuman_path_live?: boolean;
+  body_gesture_live?: boolean;
+  facial_expression_live?: boolean;
+  cinematic_quality_live?: boolean;
+  cinematic_4k_live?: boolean;
+  live_4k?: boolean;
+  cosmos_world_layer_live?: boolean;
+  avatar_resolution_actual?: string;
+  wardrobe_swap_live?: boolean;
+  world_model_live?: boolean;
+  scene_initialized_live?: boolean;
+  scene_persistence_live?: boolean;
+  actor_grounding_live?: boolean;
+  controller_role?: string;
+  jack_scene_attached?: boolean;
+  julia_scene_attached?: boolean;
   blockers?: string[];
 };
 
@@ -71,6 +98,11 @@ const AVATAR_CONFIG = {
     gradient: 'linear-gradient(135deg, #FF6A00 0%, #E05500 100%)',
     greeting: "Hi. I'm with you. What's on your mind?",
   },
+} as const;
+
+const AVATAR_PROFILES = {
+  jack: jackAvatarProfile,
+  julia: juliaAvatarProfile,
 } as const;
 
 function uid(): string {
@@ -102,16 +134,66 @@ function persistConversationId(actor: ActorId, conversationId: string) {
   } catch {}
 }
 
+async function recordFeatureConsent(
+  featureName: string,
+  action: 'grant' | 'revoke' | 'deny',
+  source: string,
+  metadata?: Record<string, unknown>,
+) {
+  try {
+    await fetch('/api/user/feature-consents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        feature_name: featureName,
+        action,
+        source,
+        metadata,
+      }),
+    });
+  } catch {
+    // Consent telemetry must not break the realtime UX.
+  }
+}
+
 function normalizeRuntimeTruth(data: any): RuntimeTruth | null {
   if (!data || typeof data !== 'object') return null;
+  const physicalLayer = data.physical_layer && typeof data.physical_layer === 'object'
+    ? data.physical_layer
+    : {};
+  const runtimeBlockers = [
+    ...(Array.isArray(data.blockers) ? data.blockers : []),
+    ...(Array.isArray(physicalLayer.blockers) ? physicalLayer.blockers : []),
+    ...(data.truth && Array.isArray(data.truth.blockers) ? data.truth.blockers : []),
+  ].filter((value, index, list) => typeof value === 'string' && list.indexOf(value) === index);
 
   if (data.truth && typeof data.truth === 'object') {
     return {
       ...data.truth,
-      voice_transport: data.voice_transport,
-      full_duplex_live: data.full_duplex_live,
-      personaplex_live: data.personaplex_live,
-      blockers: Array.isArray(data.blockers) ? data.blockers : [],
+      voice_transport: data.voice_transport ?? data.truth.voice_transport,
+      full_duplex_live: data.full_duplex_live ?? data.truth.full_duplex_live,
+      personaplex_live: data.personaplex_live ?? data.truth.personaplex_live,
+      audio2face_live: data.audio2face_live ?? data.truth.audio2face_live,
+      render_node_live: data.render_node_live ?? data.truth.render_node_live,
+      meta_avatar_live: data.meta_avatar_live ?? data.truth.meta_avatar_live,
+      body_gesture_live: data.body_gesture_live ?? data.truth.body_gesture_live,
+      facial_expression_live: data.facial_expression_live ?? data.truth.facial_expression_live,
+      cinematic_quality_live: data.cinematic_quality_live ?? data.truth.cinematic_quality_live,
+      cinematic_4k_live: data.cinematic_4k_live ?? data.truth.cinematic_4k_live,
+      live_4k: data.live_4k ?? data.truth.live_4k,
+      avatar_resolution_actual: data.avatar_resolution_actual ?? data.truth.avatar_resolution_actual,
+      wardrobe_swap_live: data.wardrobe_swap_live ?? data.truth.wardrobe_swap_live,
+      world_model_live: physicalLayer.world_model_live ?? data.truth.world_model_live,
+      cosmos_world_layer_live: data.cosmos_world_layer_live ?? data.truth.cosmos_world_layer_live,
+      scene_initialized_live: physicalLayer.scene_initialized_live ?? data.truth.scene_initialized_live,
+      scene_persistence_live: physicalLayer.scene_persistence_live ?? data.truth.scene_persistence_live,
+      actor_grounding_live: physicalLayer.actor_grounding_live ?? data.truth.actor_grounding_live,
+      controller_role: data.controller_role ?? physicalLayer.controller_role ?? data.truth.controller_role,
+      avatar_identity_locked: data.avatar_identity_locked ?? data.truth.avatar_identity_locked,
+      jack_scene_attached: data.jack_scene_attached ?? data.truth.jack_scene_attached,
+      julia_scene_attached: data.julia_scene_attached ?? data.truth.julia_scene_attached,
+      metahuman_path_live: data.metahuman_path_live ?? data.truth.metahuman_path_live,
+      blockers: runtimeBlockers,
     } as RuntimeTruth;
   }
 
@@ -132,168 +214,30 @@ function normalizeRuntimeTruth(data: any): RuntimeTruth | null {
     voice_transport: data.voice_transport || undefined,
     full_duplex_live: Boolean(data.full_duplex_live),
     personaplex_live: Boolean(data.personaplex_live),
-    blockers: Array.isArray(data.blockers) ? data.blockers : [],
+    audio2face_live: Boolean(data.audio2face_live),
+    render_node_live: Boolean(data.render_node_live),
+    render_engine_target: data.render_engine_target || undefined,
+    render_engine_actual: data.render_engine_actual || undefined,
+    meta_avatar_live: Boolean(data.meta_avatar_live),
+    metahuman_path_live: Boolean(data.metahuman_path_live ?? data.meta_avatar_live),
+    body_gesture_live: Boolean(data.body_gesture_live),
+    facial_expression_live: Boolean(data.facial_expression_live),
+    cinematic_quality_live: Boolean(data.cinematic_quality_live),
+    cinematic_4k_live: Boolean(data.cinematic_4k_live),
+    live_4k: Boolean(data.live_4k ?? data.cinematic_4k_live),
+    cosmos_world_layer_live: Boolean(data.cosmos_world_layer_live),
+    avatar_resolution_actual: data.avatar_resolution_actual || undefined,
+    wardrobe_swap_live: Boolean(data.wardrobe_swap_live),
+    world_model_live: Boolean(physicalLayer.world_model_live),
+    scene_initialized_live: Boolean(physicalLayer.scene_initialized_live),
+    scene_persistence_live: Boolean(physicalLayer.scene_persistence_live),
+    actor_grounding_live: Boolean(physicalLayer.actor_grounding_live),
+    controller_role: data.controller_role || physicalLayer.controller_role || undefined,
+    avatar_identity_locked: Boolean(data.avatar_identity_locked),
+    jack_scene_attached: Boolean(data.jack_scene_attached),
+    julia_scene_attached: Boolean(data.julia_scene_attached),
+    blockers: runtimeBlockers,
   };
-}
-
-// ============================================================
-// Avatar Stage — REAL-TIME LIP-SYNC DIGITAL HUMAN
-// Canvas-based mesh warp driven by TTS audio analysis
-// ============================================================
-
-function AvatarStage({
-  actor,
-  accent,
-  presenceState,
-  isSpeaking,
-  isListening,
-  audioLevel,
-  avatarMedia,
-  lipSyncCanvas,
-  lipSyncActive,
-  lipSyncFps,
-}: {
-  actor: ActorId;
-  accent: string;
-  presenceState: string;
-  isSpeaking: boolean;
-  isListening: boolean;
-  audioLevel: number;
-  avatarMedia: { idle: string; speaking: string; poster: string };
-  lipSyncCanvas: HTMLCanvasElement | null;
-  lipSyncActive: boolean;
-  lipSyncFps: number;
-}) {
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const idleVideoRef = useRef<HTMLVideoElement>(null);
-
-  // Mount the lip-sync canvas into the DOM
-  useEffect(() => {
-    const container = canvasContainerRef.current;
-    if (!container || !lipSyncCanvas) return;
-
-    // Style the canvas
-    lipSyncCanvas.style.width = '100%';
-    lipSyncCanvas.style.height = '100%';
-    lipSyncCanvas.style.objectFit = 'cover';
-    lipSyncCanvas.style.position = 'absolute';
-    lipSyncCanvas.style.inset = '0';
-
-    // Mount if not already child
-    if (!container.contains(lipSyncCanvas)) {
-      container.appendChild(lipSyncCanvas);
-    }
-
-    return () => {
-      if (container.contains(lipSyncCanvas)) {
-        container.removeChild(lipSyncCanvas);
-      }
-    };
-  }, [lipSyncCanvas]);
-
-  // Show canvas (lip-sync) when active, fallback to video when not
-  const showCanvas = lipSyncActive || lipSyncCanvas !== null;
-
-  return (
-    <div style={{
-      position: 'relative',
-      borderRadius: 24,
-      overflow: 'hidden',
-      background: '#0B0E14',
-      border: `1px solid ${presenceState === 'speaking' ? `${accent}66` : 'rgba(255,255,255,0.06)'}`,
-      boxShadow: presenceState === 'speaking'
-        ? `0 0 40px ${accent}26, inset 0 0 40px rgba(255,255,255,0.02)`
-        : 'inset 0 0 30px rgba(255,255,255,0.02)',
-      transition: 'border-color 0.4s, box-shadow 0.4s',
-      aspectRatio: '16 / 9',
-      maxHeight: 430,
-    }}>
-      {/* Fallback idle video — only visible when canvas is not active */}
-      <video
-        ref={idleVideoRef}
-        key={`idle-${actor}`}
-        poster={avatarMedia.poster}
-        style={{
-          position: 'absolute', inset: 0,
-          width: '100%', height: '100%', objectFit: 'cover',
-          opacity: showCanvas ? 0 : 1,
-          transition: 'opacity 0.5s ease',
-          zIndex: 1,
-        }}
-        autoPlay muted loop playsInline
-      >
-        <source src={avatarMedia.idle} type="video/mp4" />
-      </video>
-
-      {/* REAL-TIME LIP-SYNC CANVAS — The living digital human */}
-      <div
-        ref={canvasContainerRef}
-        style={{
-          position: 'absolute', inset: 0,
-          width: '100%', height: '100%',
-          opacity: showCanvas ? 1 : 0,
-          transition: 'opacity 0.5s ease',
-          zIndex: 2,
-        }}
-      />
-
-      {/* Render mode badge */}
-      <div style={{
-        position: 'absolute', top: 12, right: 12, zIndex: 10,
-        display: 'flex', alignItems: 'center', gap: 6,
-        padding: '5px 10px', borderRadius: 999,
-        background: 'rgba(5,6,8,0.72)', backdropFilter: 'blur(14px)',
-        border: `1px solid ${lipSyncActive ? `${accent}40` : 'rgba(255,255,255,0.08)'}`,
-      }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: 999,
-          background: lipSyncActive ? '#a855f7' : showCanvas ? '#22c55e' : '#64748b',
-          boxShadow: lipSyncActive ? '0 0 8px #a855f780' : 'none',
-          animation: lipSyncActive ? 'pulse-dot 1.4s infinite' : 'none',
-        }} />
-        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#F5F7FB', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-          {lipSyncActive ? `NEURAL LIP-SYNC ${lipSyncFps}fps` : showCanvas ? 'DIGITAL HUMAN' : 'VIDEO'}
-        </span>
-      </div>
-
-      {/* Audio-reactive border glow */}
-      <div style={{
-        position: 'absolute', inset: 0, zIndex: 4,
-        borderRadius: 24,
-        boxShadow: isSpeaking
-          ? `inset 0 0 ${30 + audioLevel * 40}px ${accent}${Math.round(audioLevel * 40).toString(16).padStart(2, '0')}`
-          : isListening
-            ? `inset 0 0 20px #ef444430`
-            : 'none',
-        transition: 'box-shadow 0.1s',
-        pointerEvents: 'none',
-      }} />
-
-      {/* Gradient overlay */}
-      <div style={{
-        position: 'absolute', inset: 0, zIndex: 5,
-        background: 'linear-gradient(180deg, rgba(5,6,8,0.15) 0%, rgba(5,6,8,0) 30%, rgba(5,6,8,0.2) 100%)',
-        pointerEvents: 'none',
-      }} />
-
-      {/* Audio waveform bar at bottom when speaking */}
-      {(isSpeaking || isListening) && (
-        <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          height: 3, zIndex: 6,
-        }}>
-          <div style={{
-            height: '100%',
-            background: isSpeaking ? accent : '#ef4444',
-            width: `${Math.max(5, audioLevel * 100)}%`,
-            transition: 'width 0.05s',
-            borderRadius: 999,
-            boxShadow: `0 0 12px ${isSpeaking ? accent : '#ef4444'}80`,
-          }} />
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ============================================================
@@ -324,6 +268,9 @@ export default function NeuralPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const lastRoomStatusRef = useRef<string>('disconnected');
+  const cameraConsentLoggedRef = useRef(false);
+  const cameraDeniedLoggedRef = useRef(false);
+  const liveVoiceConsentLoggedRef = useRef(false);
 
   // Stable canvas ref — getCanvas() returns the same element each time,
   // but calling it in render creates a new object reference for React.
@@ -335,6 +282,7 @@ export default function NeuralPage() {
 
   const userId = persistBrowserUserId(getStableBrowserUserId());
   const cfg = AVATAR_CONFIG[actor];
+  const avatarProfile = AVATAR_PROFILES[actor];
 
   const visualPipelineReady = vision.visionState === 'camera_live' || vision.visionState === 'analyzing';
   const liveCallActive = liveRoom.roomStatus === 'connected' || liveRoom.roomStatus === 'reconnecting';
@@ -347,21 +295,88 @@ export default function NeuralPage() {
         ? 'listening'
         : 'idle';
 
-  const avatarMedia = useMemo(() => ({
-    idle: actor === 'jack' ? assetManifest.jack.idleVideo : assetManifest.julia.idleVideo,
-    speaking: actor === 'jack' ? assetManifest.jack.speakingVideo : assetManifest.julia.speakingVideo,
-    poster: actor === 'jack' ? assetManifest.jack.image : assetManifest.julia.image,
-  }), [actor]);
+  const latestAssistantLine = useMemo(() => {
+    const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant');
+    return lastAssistantMessage?.text || cfg.greeting;
+  }, [cfg.greeting, messages]);
+
+  const avatarRuntime = useAvatarRuntime({
+    actorId: actor,
+    identityLock: avatarProfile.identityLock,
+    presenceState: presenceState as 'idle' | 'listening' | 'thinking' | 'speaking',
+    roomConnected: liveCallActive,
+    transportConnected: liveRoom.transportConnected || liveCallActive,
+    micLive: liveRoom.micLive || voiceMode === 'recording',
+    speakerLive: liveRoom.speakerLive || groq.isSpeaking || liveRoom.isAgentSpeaking,
+    audioUnlocked: groq.audioUnlocked,
+    visualPipelineReady,
+    framesReceiving: vision.frameCount > 0 || Boolean(vision.lastAnalysis),
+    semanticVisionLive: Boolean(vision.lastAnalysis) || Boolean(runtimeTruth?.vision_live),
+    memoryLoaded: memoryLoaded || Boolean(runtimeTruth?.memory_live),
+    personaplexLive: Boolean(runtimeTruth?.personaplex_live),
+    audio2faceLive: Boolean(runtimeTruth?.audio2face_live || (runtimeTruth?.lip_sync_provider === 'audio2face' && runtimeTruth?.lip_sync_live)),
+    controllerRole: runtimeTruth?.controller_role,
+    worldModelLive: runtimeTruth?.world_model_live,
+    sceneInitializedLive: runtimeTruth?.scene_initialized_live,
+    renderNodeLive: runtimeTruth?.render_node_live,
+    renderEngineTarget: runtimeTruth?.render_engine_target,
+    renderEngineActual: runtimeTruth?.render_engine_actual,
+    metaAvatarLive: runtimeTruth?.meta_avatar_live,
+    metahumanPathLive: runtimeTruth?.metahuman_path_live,
+    bodyGestureLive: runtimeTruth?.body_gesture_live,
+    cosmosWorldLayerLive: runtimeTruth?.cosmos_world_layer_live,
+    cinematic4kLive: runtimeTruth?.cinematic_4k_live,
+    avatarResolutionActual: runtimeTruth?.avatar_resolution_actual,
+    wardrobeSwapLive: runtimeTruth?.wardrobe_swap_live,
+    jackSceneAttached: runtimeTruth?.jack_scene_attached,
+    juliaSceneAttached: runtimeTruth?.julia_scene_attached,
+    browserCanvasLive: lipSyncState.isRendering,
+    browserCanvasLipSyncLive: lipSyncState.isActive,
+  });
+
+  const avatarBridge = useAvatarAnimationBridge({
+    profile: avatarProfile,
+    runtime: avatarRuntime,
+    lastAssistantLine: latestAssistantLine,
+    visionSummary: vision.lastAnalysis || '',
+  });
 
   // Load portrait into lip-sync engine when actor changes
   useEffect(() => {
-    const portraitSrc = actor === 'jack'
-      ? '/avatars/jack-portrait.png'
-      : '/avatars/julia-portrait.png';
-    lipSyncActions.setPortraitSrc(portraitSrc);
+    lipSyncActions.setPortraitSrc(avatarProfile.media.poster);
+    lipSyncActions.setRenderCalibration(avatarProfile.identityLock.renderCalibration);
     // Also get the canvas ready
     lipSyncActions.getCanvas();
-  }, [actor, lipSyncActions]);
+  }, [avatarProfile.identityLock.renderCalibration, avatarProfile.media.poster, lipSyncActions]);
+
+  useEffect(() => {
+    lipSyncActions.setAttentionState({
+      mode: vision.isAnalyzing
+        ? 'analyzing'
+        : presenceState === 'listening'
+          ? 'listening'
+          : presenceState === 'thinking'
+            ? 'thinking'
+            : presenceState === 'speaking'
+              ? 'speaking'
+              : 'idle',
+      engaged: liveCallActive || voiceMode === 'recording' || groq.isSpeaking || liveRoom.isAgentSpeaking || isTyping,
+      listeningIntensity: voiceMode === 'recording' || liveCallActive ? 1 : groq.isListening ? 0.7 : 0.2,
+      targetX: vision.visionMode === 'screen' ? 0.48 : 0.5,
+      targetY: vision.isAnalyzing ? 0.56 : presenceState === 'thinking' ? 0.5 : 0.42,
+    });
+  }, [
+    groq.isListening,
+    groq.isSpeaking,
+    isTyping,
+    lipSyncActions,
+    liveCallActive,
+    liveRoom.isAgentSpeaking,
+    presenceState,
+    vision.isAnalyzing,
+    vision.visionMode,
+    voiceMode,
+  ]);
 
   const appendMessage = useCallback((role: Message['role'], text: string, messageActor?: ActorId) => {
     setMessages((prev) => [
@@ -445,6 +460,47 @@ export default function NeuralPage() {
   }, [vision.cameraStream]);
 
   useEffect(() => {
+    if (vision.visionMode === 'camera' && vision.visionState === 'camera_live' && !cameraConsentLoggedRef.current) {
+      cameraConsentLoggedRef.current = true;
+      cameraDeniedLoggedRef.current = false;
+      void recordFeatureConsent('camera', 'grant', 'jit_camera_prompt', {
+        actor,
+        mode: vision.visionMode,
+      });
+    }
+
+    if (vision.visionState === 'error_camera' && !cameraDeniedLoggedRef.current) {
+      cameraDeniedLoggedRef.current = true;
+      cameraConsentLoggedRef.current = false;
+      void recordFeatureConsent('camera', 'deny', 'jit_camera_prompt', {
+        actor,
+        error: vision.visionError || 'camera_access_failed',
+      });
+    }
+
+    if (vision.visionMode === 'off') {
+      cameraConsentLoggedRef.current = false;
+      if (vision.visionState !== 'error_camera') {
+        cameraDeniedLoggedRef.current = false;
+      }
+    }
+  }, [actor, vision.visionError, vision.visionMode, vision.visionState]);
+
+  useEffect(() => {
+    if (liveRoom.roomStatus === 'connected' && !liveVoiceConsentLoggedRef.current) {
+      liveVoiceConsentLoggedRef.current = true;
+      void Promise.all([
+        recordFeatureConsent('live_voice', 'grant', 'jit_live_call_prompt', { actor, room_id: liveRoom.roomId || undefined }),
+        recordFeatureConsent('microphone', 'grant', 'jit_live_call_prompt', { actor, room_id: liveRoom.roomId || undefined }),
+      ]);
+    }
+
+    if (liveRoom.roomStatus === 'disconnected') {
+      liveVoiceConsentLoggedRef.current = false;
+    }
+  }, [actor, liveRoom.roomId, liveRoom.roomStatus]);
+
+  useEffect(() => {
     let cancelled = false;
 
     fetch('/api/neural/runtime', { cache: 'no-store' })
@@ -517,6 +573,81 @@ export default function NeuralPage() {
     window.history.replaceState({}, '', `${url.pathname}${url.search}`);
   }, [actor]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    (window as typeof window & { __AGI1_NEURAL_DEBUG__?: Record<string, unknown> }).__AGI1_NEURAL_DEBUG__ = {
+      actor,
+      presence_state: presenceState,
+      room_connected: liveCallActive,
+      transport_connected: liveRoom.transportConnected,
+      mic_live: liveRoom.micLive || voiceMode === 'recording',
+      speaker_live: liveRoom.speakerLive || groq.isSpeaking || liveRoom.isAgentSpeaking,
+      avatar_render_live: avatarRuntime.avatar_render_live,
+      avatar_identity_locked: avatarRuntime.avatar_identity_locked,
+      avatar_animation_live: avatarRuntime.avatar_animation_live,
+      lip_sync_live: avatarRuntime.lip_sync_live,
+      face_expression_live: avatarRuntime.face_expression_live,
+      facial_expression_live: avatarRuntime.facial_expression_live,
+      voice_output_live: avatarRuntime.voice_output_live,
+      voice_input_live: avatarRuntime.voice_input_live,
+      camera_perception_live: avatarRuntime.camera_perception_live,
+      semantic_vision_live: avatarRuntime.semantic_vision_live,
+      visual_pipeline_ready: avatarRuntime.visual_pipeline_ready,
+      frames_receiving: avatarRuntime.frames_receiving,
+      memory_loaded: avatarRuntime.memory_loaded,
+      fallback_mode_active: avatarRuntime.fallback_mode_active,
+      render_mode: avatarRuntime.render_mode,
+      lip_sync_provider: runtimeTruth?.lip_sync_provider || 'browser_canvas',
+      lip_sync_realtime_capable: runtimeTruth?.lip_sync_realtime_capable ?? lipSyncState.isActive,
+      personaplex_live: avatarRuntime.personaplex_live,
+      audio2face_live: avatarRuntime.audio2face_live,
+      voice_transport: runtimeTruth?.voice_transport || liveRoom.provider || null,
+      full_duplex_live: runtimeTruth?.full_duplex_live ?? false,
+      controller_role: avatarRuntime.controller_role,
+      render_node_live: avatarRuntime.render_node_live,
+      render_engine_target: avatarRuntime.render_engine_target,
+      render_engine_actual: avatarRuntime.render_engine_actual,
+      meta_avatar_live: avatarRuntime.meta_avatar_live,
+      metahuman_path_live: avatarRuntime.metahuman_path_live,
+      body_gesture_live: avatarRuntime.body_gesture_live,
+      cinematic_quality_live: avatarRuntime.cinematic_quality_live,
+      cinematic_4k_live: avatarRuntime.cinematic_4k_live,
+      live_4k: avatarRuntime.live_4k,
+      cosmos_world_layer_live: avatarRuntime.cosmos_world_layer_live,
+      avatar_resolution_actual: avatarRuntime.avatar_resolution_actual,
+      wardrobe_swap_live: avatarRuntime.wardrobe_swap_live,
+      world_model_live: avatarRuntime.world_model_live,
+      scene_initialized_live: avatarRuntime.scene_initialized_live,
+      jack_scene_attached: avatarRuntime.jack_scene_attached,
+      julia_scene_attached: avatarRuntime.julia_scene_attached,
+      last_analysis: vision.lastAnalysis || null,
+      frame_count: vision.frameCount,
+      lip_sync_fps: lipSyncState.fps,
+      conversation_id: conversationId || null,
+    };
+  }, [
+    actor,
+    avatarRuntime,
+    conversationId,
+    groq.isSpeaking,
+    liveCallActive,
+    liveRoom.isAgentSpeaking,
+    liveRoom.micLive,
+    liveRoom.provider,
+    liveRoom.speakerLive,
+    liveRoom.transportConnected,
+    lipSyncState.fps,
+    lipSyncState.isActive,
+    presenceState,
+    runtimeTruth,
+    vision.frameCount,
+    vision.lastAnalysis,
+    voiceMode,
+  ]);
+
   // ============================================================
   // Speak — TTS audio drives real-time lip-sync automatically
   // The lip-sync engine hooks into the audio element via useEffect above
@@ -570,10 +701,15 @@ export default function NeuralPage() {
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
         micStreamRef.current = stream;
+        await recordFeatureConsent('microphone', 'grant', 'jit_push_to_talk', { actor });
         await groqActions.startListening();
         setVoiceMode('recording');
       } catch (err) {
         console.error('[Neural] Mic access failed:', err);
+        await recordFeatureConsent('microphone', 'deny', 'jit_push_to_talk', {
+          actor,
+          error: err instanceof Error ? err.message : 'mic_access_failed',
+        });
         appendMessage('system', 'Microphone access denied. Allow mic access and try again.');
       }
     }
@@ -711,7 +847,7 @@ export default function NeuralPage() {
     ? `Lip-sync live ${lipSyncState.fps}fps`
     : lipSyncState.isRendering
       ? 'Portrait render live'
-      : 'Portrait mode';
+      : 'Video fallback';
   const avatarStatusAccent = lipSyncState.isActive
     ? '#a855f7'
     : lipSyncState.isRendering
@@ -721,9 +857,13 @@ export default function NeuralPage() {
     ? `Browser portrait lip-sync live — ${lipSyncState.fps}fps`
     : lipSyncState.isRendering
       ? 'Portrait canvas live — idle motion active'
-      : runtimeTruth?.personaplex_live
-        ? 'PersonaPlex runtime connected'
-        : 'Portrait fallback active — PersonaPlex / Audio2Face not connected';
+      : runtimeTruth?.cinematic_4k_live
+        ? `GPU avatar live — ${runtimeTruth.avatar_resolution_actual || '4K'}`
+        : runtimeTruth?.render_node_live
+          ? `GPU render node ready — ${runtimeTruth.render_engine_actual || 'renderer'}`
+          : runtimeTruth?.personaplex_live
+            ? 'PersonaPlex runtime connected'
+            : 'Reference video fallback active — GPU avatar runtime not connected';
 
   const topStatusPills = [
     {
@@ -821,13 +961,42 @@ export default function NeuralPage() {
           <StatusDot label="LLM" active={runtimeTruth?.llm_live ?? true} detail={runtimeTruth?.llm_provider ? `${runtimeTruth.llm_provider} live` : 'Groq Llama-3.3-70b'} />
           <StatusDot
             label="Avatar Runtime"
-            active={avatarSurfaceLive}
+            active={avatarRuntime.avatar_render_live}
             detail={
               lipSyncState.isActive
                 ? `${avatarRuntimeDetail}, jaw=${lipSyncState.viseme.jawOpen.toFixed(2)}`
                 : avatarRuntimeDetail
             }
           />
+          <StatusDot label="Animation" active={avatarRuntime.avatar_animation_live} detail={avatarRuntime.avatar_animation_live ? avatarRuntime.render_mode : 'Fallback only'} />
+          <StatusDot label="Lip Sync" active={avatarRuntime.lip_sync_live} detail={avatarRuntime.lip_sync_live ? 'Live' : 'Staged'} />
+          <StatusDot label="Identity" active={avatarRuntime.avatar_identity_locked} detail={avatarRuntime.avatar_identity_locked ? 'Locked' : 'Not locked'} />
+          <StatusDot
+            label="Render Node"
+            active={Boolean(runtimeTruth?.render_node_live)}
+            detail={runtimeTruth?.render_node_live ? (runtimeTruth.render_engine_actual || 'Renderer live') : 'Offline'}
+          />
+          <StatusDot
+            label="Scene"
+            active={Boolean(runtimeTruth?.scene_initialized_live)}
+            detail={runtimeTruth?.scene_initialized_live ? `war_room_v1 • ${runtimeTruth?.controller_role || 'controller'}` : 'Scene staged'}
+          />
+          <StatusDot
+            label="Resolution"
+            active={Boolean(runtimeTruth?.cinematic_4k_live)}
+            detail={runtimeTruth?.avatar_resolution_actual || 'Not reported'}
+          />
+          <StatusDot
+            label="Meta Path"
+            active={Boolean(runtimeTruth?.metahuman_path_live)}
+            detail={runtimeTruth?.metahuman_path_live ? 'Active' : 'Staged'}
+          />
+          <StatusDot
+            label="Cosmos World"
+            active={Boolean(runtimeTruth?.cosmos_world_layer_live)}
+            detail={runtimeTruth?.cosmos_world_layer_live ? 'Live world layer' : 'Not active'}
+          />
+          <StatusDot label="Voice Input" active={avatarRuntime.voice_input_live} detail={avatarRuntime.voice_input_live ? 'Live' : 'Waiting'} />
           <StatusDot label="Camera" active={visualPipelineReady} detail={vision.visionState.replace(/_/g, ' ')} />
           <StatusDot label="Vision AI" active={Boolean(vision.lastAnalysis) || Boolean(runtimeTruth?.vision_live)} detail={vision.lastAnalysis ? 'Live semantic vision' : (runtimeTruth?.vision_provider || 'Waiting')} />
           <StatusDot label="Memory" active={memoryLoaded || Boolean(runtimeTruth?.memory_live)} detail={memoryLoaded ? 'Active in session' : (runtimeTruth?.memory_live ? 'Ready' : 'Pending')} />
@@ -857,53 +1026,85 @@ export default function NeuralPage() {
 
         {/* Avatar Stage */}
         <div style={{ marginTop: 10, position: 'relative' }}>
-          <AvatarStage
-            actor={actor}
-            accent={cfg.accent}
-            presenceState={presenceState}
-            isSpeaking={groq.isSpeaking}
-            isListening={voiceMode === 'recording'}
+          <DigitalHumanStage
+            profile={avatarProfile}
+            presenceState={presenceState as 'idle' | 'listening' | 'thinking' | 'speaking'}
+            runtime={avatarRuntime}
+            bridge={avatarBridge}
+            liveCanvas={lipSyncCanvasRef.current}
+            liveCanvasActive={lipSyncState.isActive || lipSyncState.isRendering}
             audioLevel={audioLevel}
-            avatarMedia={avatarMedia}
-            lipSyncCanvas={lipSyncCanvasRef.current}
-            lipSyncActive={lipSyncState.isActive}
-            lipSyncFps={lipSyncState.fps}
-          />
-
-          {/* Presence badge */}
-          <div data-testid="presence-state" style={{
-            position: 'absolute', top: 24, left: 24, zIndex: 10,
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '7px 14px', borderRadius: 999,
-            background: 'rgba(5,6,8,0.72)', backdropFilter: 'blur(14px)',
-          }}>
-            <span style={{
-              width: 8, height: 8, borderRadius: 999,
-              background: presenceState === 'speaking' ? '#22c55e' : presenceState === 'thinking' ? '#FF8A00' : presenceState === 'listening' ? '#ef4444' : '#64748b',
-              boxShadow: presenceState !== 'idle' ? `0 0 10px ${presenceState === 'speaking' ? '#22c55e' : presenceState === 'thinking' ? '#FF8A00' : '#ef4444'}70` : 'none',
-              animation: presenceState === 'idle' ? 'none' : 'pulse-dot 1.4s infinite',
-            }} />
-            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#F5F7FB' }}>
-              {presenceState === 'speaking' && `${cfg.name} is speaking`}
-              {presenceState === 'thinking' && `${cfg.name} is thinking...`}
-              {presenceState === 'listening' && `${cfg.name} is listening`}
-              {presenceState === 'idle' && cfg.name}
-            </span>
-          </div>
-
-          {/* Camera PiP */}
-          {vision.cameraStream && (
-            <div data-testid="camera-pip" style={{
-              position: 'absolute', top: 24, right: 24, zIndex: 10,
-              width: 144, height: 104, borderRadius: 14, overflow: 'hidden',
-              border: '1px solid rgba(255,255,255,0.22)', boxShadow: '0 10px 30px rgba(0,0,0,0.36)', background: '#091018',
-            }}>
-              <video ref={cameraVideoRef} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: vision.visionMode === 'camera' ? 'scaleX(-1)' : 'none' }} autoPlay muted playsInline />
-              <div style={{ position: 'absolute', left: 6, top: 6, display: 'flex', alignItems: 'center', gap: 5, padding: '3px 7px', borderRadius: 999, background: 'rgba(5,6,8,0.72)', color: '#F5F7FB', fontSize: '0.6rem', fontWeight: 700 }}>
-                <Eye size={10} />{vision.isAnalyzing ? 'Analyzing' : vision.visionMode === 'screen' ? 'Screen' : 'Camera'}
+            primaryActions={
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                maxWidth: '100%',
+              }}>
+                <PrimaryAction
+                  label={liveCallActive || liveRoom.roomStatus === 'connecting' || liveRoom.roomStatus === 'requesting_media' ? 'Live call active' : 'Connect voice'}
+                  onClick={() => { void handleLiveCallToggle(); }}
+                  accent={liveCallActive ? '#22c55e' : '#8b5cf6'}
+                  active={liveCallActive || liveRoom.roomStatus === 'connecting' || liveRoom.roomStatus === 'requesting_media'}
+                />
+                <PrimaryAction
+                  label={visualPipelineReady ? 'Camera live' : 'Camera on'}
+                  onClick={() => {
+                    if (visualPipelineReady || vision.visionState === 'paused') {
+                      visionActions.stopVision();
+                    } else {
+                      void visionActions.startCamera();
+                    }
+                  }}
+                  accent={visualPipelineReady ? cfg.accent : '#3c4657'}
+                  active={visualPipelineReady}
+                />
+                <PrimaryAction
+                  label="Scan frame"
+                  onClick={() => {
+                    void visionActions.captureAndAnalyze(actor, 'Describe what you see right now.', {
+                      userId,
+                      callSessionId: liveRoom.sessionId || undefined,
+                    }).then((analysis) => {
+                      if (analysis) {
+                        appendMessage('assistant', analysis);
+                        void speakWithLipSync(analysis, actor);
+                      }
+                    });
+                  }}
+                  accent={Boolean(vision.lastAnalysis) ? cfg.accent : '#FF8A00'}
+                  active={visualPipelineReady}
+                  disabled={!visualPipelineReady}
+                />
               </div>
-            </div>
-          )}
+            }
+            cameraPreview={vision.cameraStream ? (
+              <div
+                data-testid="camera-pip"
+                style={{
+                  position: 'relative',
+                  width: '100%',
+                  height: '100%',
+                  borderRadius: 14,
+                  overflow: 'hidden',
+                  border: '1px solid rgba(255,255,255,0.22)',
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.36)',
+                  background: '#091018',
+                }}
+              >
+                <video
+                  ref={cameraVideoRef}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', transform: vision.visionMode === 'camera' ? 'scaleX(-1)' : 'none' }}
+                  autoPlay
+                  muted
+                  playsInline
+                />
+                <div style={{ position: 'absolute', left: 6, top: 6, display: 'flex', alignItems: 'center', gap: 5, padding: '3px 7px', borderRadius: 999, background: 'rgba(5,6,8,0.72)', color: '#F5F7FB', fontSize: '0.6rem', fontWeight: 700 }}>
+                  <Eye size={10} />{vision.isAnalyzing ? 'Analyzing' : vision.visionMode === 'screen' ? 'Screen' : 'Camera'}
+                </div>
+              </div>
+            ) : null}
+          />
         </div>
 
         {/* Controls */}
@@ -1049,6 +1250,35 @@ function QuickControl({ icon, label, active, accent, onClick, disabled, large, d
     }}>
       {icon}
       <span style={{ fontSize: '0.66rem', fontWeight: 600 }}>{label}</span>
+    </button>
+  );
+}
+
+function PrimaryAction({ label, onClick, accent, active, disabled }: {
+  label: string;
+  onClick: () => void;
+  accent: string;
+  active?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: '10px 14px',
+        borderRadius: 999,
+        border: `1px solid ${active ? `${accent}80` : 'rgba(255,255,255,0.10)'}`,
+        background: active ? `${accent}20` : 'rgba(5,6,8,0.58)',
+        color: disabled ? '#687484' : '#F5F7FB',
+        backdropFilter: 'blur(12px)',
+        fontSize: '0.8rem',
+        fontWeight: 700,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        transition: 'all 0.2s',
+      }}
+    >
+      {label}
     </button>
   );
 }

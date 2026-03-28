@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Activity,
   ArrowRight,
@@ -27,9 +27,125 @@ const LOG_LINES = [
 ];
 
 export default function SingularityPage() {
+  const [task, setTask] = useState('Analyze my local file structure and summarize it.');
+  const [taskStatus, setTaskStatus] = useState<'idle' | 'authorizing' | 'running' | 'done' | 'error'>('idle');
+  const [taskOutput, setTaskOutput] = useState('');
+  const [userId, setUserId] = useState('');
+  const [openclawAuthorized, setOpenclawAuthorized] = useState(false);
+
   useEffect(() => {
     document.title = 'AGI-1 Singularity Console';
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadContext = async () => {
+      try {
+        const [stateResp, permissionResp] = await Promise.all([
+          fetch('/api/user/state'),
+          fetch('/api/user/feature-consents'),
+        ]);
+        const stateData = await stateResp.json();
+        const permissionData = await permissionResp.json();
+        if (cancelled) return;
+
+        setUserId((stateData.email || '').toLowerCase());
+        const openclawPermission = (permissionData.feature_consents || []).find(
+          (record: { feature_name?: string; granted?: boolean }) =>
+            record.feature_name === 'openclaw_device_control' && record.granted
+        );
+        setOpenclawAuthorized(Boolean(openclawPermission));
+      } catch {
+        if (!cancelled) {
+          setOpenclawAuthorized(false);
+        }
+      }
+    };
+
+    void loadContext();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const authorizeOpenClaw = useCallback(async () => {
+    setTaskStatus('authorizing');
+    setTaskOutput('');
+    try {
+      const [featureResp, permissionResp] = await Promise.all([
+        fetch('/api/user/feature-consents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            feature_name: 'openclaw_device_control',
+            action: 'grant',
+            source: 'singularity_console',
+          }),
+        }),
+        fetch('/api/workspace/permissions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'grant',
+            user_id: userId || 'default',
+            category: 'browser_control',
+          }),
+        }),
+      ]);
+
+      if (!featureResp.ok || !permissionResp.ok) {
+        throw new Error('authorization_failed');
+      }
+
+      setOpenclawAuthorized(true);
+      setTaskStatus('idle');
+      setTaskOutput('OpenClaw device-control authorization granted for this account.');
+    } catch {
+      setTaskStatus('error');
+      setTaskOutput('Could not authorize OpenClaw device control. Check your session and try again.');
+    }
+  }, [userId]);
+
+  const executeTask = useCallback(async () => {
+    if (!task.trim()) return;
+    if (!openclawAuthorized) {
+      setTaskStatus('error');
+      setTaskOutput('Authorize OpenClaw device control before running supported remote tasks.');
+      return;
+    }
+
+    setTaskStatus('running');
+    setTaskOutput('');
+
+    try {
+      const response = await fetch('/api/workspace/singularity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task,
+          user_id: userId || 'default',
+          actor: 'jack',
+          approved: true,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.error || 'task_failed');
+      }
+
+      setTaskStatus('done');
+      setTaskOutput(JSON.stringify(data, null, 2));
+    } catch (error) {
+      setTaskStatus('error');
+      setTaskOutput(error instanceof Error ? error.message : 'Task execution failed.');
+    }
+  }, [openclawAuthorized, task, userId]);
+
+  const openclawStatus = useMemo(
+    () => (openclawAuthorized ? 'Authorized' : 'Needs authorization'),
+    [openclawAuthorized]
+  );
 
   return (
     <main className="singularity-shell singularity-shell--cryo">
@@ -114,6 +230,65 @@ export default function SingularityPage() {
                     ))}
                   </div>
                 </Panel>
+              </div>
+
+              <div className="task-panel task-panel--active" style={{ marginTop: 24 }}>
+                <div className="task-panel__header">
+                  <span className="task-panel__icon"><TerminalSquare size={16} /></span>
+                  <strong>OpenClaw V2 Task Console</strong>
+                </div>
+                <div style={{ display: 'grid', gap: 12 }}>
+                  <div className="task-summary">
+                    <div className="task-summary__row">
+                      <span>OpenClaw device control</span>
+                      <strong>{openclawStatus}</strong>
+                    </div>
+                    <div className="task-summary__row">
+                      <span>Aegis oversight</span>
+                      <strong>Background active</strong>
+                    </div>
+                  </div>
+                  <textarea
+                    value={task}
+                    onChange={(event) => setTask(event.target.value)}
+                    rows={4}
+                    style={{
+                      width: '100%',
+                      borderRadius: 12,
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      background: 'rgba(255,255,255,0.04)',
+                      color: '#f4f7fb',
+                      padding: '12px 14px',
+                      resize: 'vertical',
+                    }}
+                    placeholder="Describe the remote task you want Singularity and OpenClaw to execute."
+                  />
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <button className="command-button" onClick={() => void authorizeOpenClaw()}>
+                      Authorize OpenClaw
+                    </button>
+                    <button className="command-button" onClick={() => void executeTask()}>
+                      Execute Task
+                    </button>
+                  </div>
+                  {taskOutput ? (
+                    <pre style={{
+                      margin: 0,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      borderRadius: 12,
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(2, 6, 23, 0.72)',
+                      color: taskStatus === 'error' ? '#fca5a5' : '#dbe7ff',
+                      padding: '14px',
+                      fontSize: '0.8rem',
+                      maxHeight: 280,
+                      overflow: 'auto',
+                    }}>
+                      {taskOutput}
+                    </pre>
+                  ) : null}
+                </div>
               </div>
 
               <div className="singularity-right" style={{ marginTop: 24 }}>

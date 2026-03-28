@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getTokens } from '../oauth/store';
 import { deriveCapabilities } from '../_lib/scopes';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/workspace/status
  * Returns which Google Workspace integrations are connected,

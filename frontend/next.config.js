@@ -1,3 +1,5 @@
+const systemContract = require("./system-contract.json");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -6,7 +8,7 @@ const nextConfig = {
     instrumentationHook: true,
   },
   async rewrites() {
-    const destination = (process.env.NEXT_PUBLIC_API_URL || "https://api.agi1.org").replace(/\/$/, "");
+    const destination = (process.env.AGI1_API_BASE || process.env.NEXT_PUBLIC_API_URL || systemContract.domains.api).replace(/\/$/, "");
     return {
       beforeFiles: [],
       afterFiles: [
