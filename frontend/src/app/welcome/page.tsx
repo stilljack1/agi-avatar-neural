@@ -1,10 +1,4 @@
 'use client';
-// ─────────────────────────────────────────────────────────
-//  AGI-1 Welcome — FULL SCREEN UNMUTED Video
-//  Strategy: try unmuted autoplay first. If browser blocks,
-//  fall back to muted + show unmute overlay.
-//  Video covers 100% of the screen. Nothing on top.
-// ─────────────────────────────────────────────────────────
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -68,58 +62,6 @@ function TopAuthActions({
         >
           Sign Up
         </SignUpTag>
-      </div>
-    </div>
-  );
-}
-
-function WelcomeHeroCopy({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className="pointer-events-none absolute inset-x-0 top-20 z-20 flex justify-center px-4 sm:top-24 sm:px-6">
-      <div className="w-full max-w-5xl text-center text-white">
-        <p
-          className={`text-white/80 ${compact ? 'text-[11px]' : 'text-[12px] sm:text-[13px]'} uppercase tracking-[0.38em]`}
-          style={{ textShadow: '0 0 28px rgba(255,255,255,0.15)' }}
-        >
-          Welcome to AGI-1
-        </p>
-        <h1
-          className={`mt-4 font-semibold ${compact ? 'text-[34px]' : 'text-[40px] sm:text-[64px] lg:text-[78px]'} leading-none tracking-[-0.04em]`}
-          style={{ textShadow: '0 0 36px rgba(255,255,255,0.24)' }}
-        >
-          Welcome to AGI 1
-        </h1>
-        <div className="mx-auto mt-4 h-px w-full max-w-3xl bg-gradient-to-r from-transparent via-[#FF8A33] to-transparent opacity-90" />
-        <p
-          className={`mt-4 font-medium italic text-[#FFB56D] ${compact ? 'text-lg' : 'text-xl sm:text-[34px]'} tracking-[0.06em]`}
-          style={{ textShadow: '0 0 26px rgba(255,138,51,0.22)' }}
-        >
-          The Beginning of a New World
-        </p>
-        <p
-          className={`mx-auto mt-6 max-w-3xl ${compact ? 'text-sm' : 'text-sm sm:text-[17px]'} leading-relaxed text-white/82`}
-          style={{ textShadow: '0 0 20px rgba(0,0,0,0.35)' }}
-        >
-          Jack and Julia, your personal super intelligent assistants, are here to help you.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function WelcomeCaptionCard() {
-  return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-28 z-20 flex justify-center px-4 sm:bottom-32">
-      <div
-        className="max-w-3xl rounded-[28px] border border-white/20 px-6 py-4 text-center text-black shadow-[0_18px_80px_rgba(0,0,0,0.28)] sm:px-10"
-        style={{
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(246,246,246,0.92) 100%)',
-          backdropFilter: 'blur(16px)',
-        }}
-      >
-        <p className="text-xl font-medium leading-tight sm:text-[28px]">
-          Jack and Julia, your personal Super Assistants, are here to help you.
-        </p>
       </div>
     </div>
   );
@@ -260,15 +202,20 @@ export default function WelcomePage() {
 
   if (!ready) {
     return (
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black">
+      <div
+        className="fixed inset-0 z-[9999] flex items-end justify-center bg-black px-4 pb-24"
+        style={{
+          background:
+            'radial-gradient(circle at 50% 82%, rgba(255,140,45,0.34), rgba(255,140,45,0.04) 24%, rgba(0,0,0,0) 42%), linear-gradient(180deg, #05070d 0%, #0b1220 48%, #06080f 100%)',
+        }}
+      >
         <TopAuthActions />
-        <WelcomeHeroCopy compact />
-        <div className="flex flex-col items-center gap-5 text-center text-white">
-          <div className="h-14 w-14 animate-spin rounded-full border-2 border-white/20 border-t-[#FF6A00]" />
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-white/45">AGI-1</p>
-            <h1 className="mt-2 text-3xl font-semibold">Preparing your welcome experience</h1>
-          </div>
+        <div className="w-full max-w-xl rounded-[28px] border border-white/12 bg-black/35 p-6 text-center text-white backdrop-blur-md">
+          <p className="text-[11px] uppercase tracking-[0.34em] text-white/55">Welcome to AGI-1</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">The Beginning of a New World</h1>
+          <p className="mt-3 text-sm leading-relaxed text-white/62">
+            Loading the welcome video and first-screen intro.
+          </p>
         </div>
       </div>
     );
@@ -288,15 +235,10 @@ export default function WelcomePage() {
         className="pointer-events-none absolute inset-0 z-10"
         style={{
           background:
-            'linear-gradient(180deg, rgba(3,6,12,0.72) 0%, rgba(3,6,12,0.18) 24%, rgba(3,6,12,0.08) 55%, rgba(3,6,12,0.52) 100%)',
+            'linear-gradient(180deg, rgba(3,6,12,0.45) 0%, rgba(3,6,12,0.08) 22%, rgba(3,6,12,0.04) 58%, rgba(3,6,12,0.55) 100%)',
         }}
       />
-      <WelcomeHeroCopy />
-      <WelcomeCaptionCard />
 
-      {/* ═══════════════════════════════════════════════════
-          VIDEO — 100% of the screen, nothing on top
-          ═══════════════════════════════════════════════════ */}
       <video
         ref={videoRef}
         className="absolute inset-0 w-full h-full object-cover"
@@ -339,28 +281,26 @@ export default function WelcomePage() {
 
       {(showFallbackOverlay || videoFailed) && !ended ? (
         <div
-          className="absolute inset-0 z-25 flex items-center justify-center px-6"
+          className="absolute inset-x-0 bottom-28 z-25 flex justify-center px-6 sm:bottom-32"
           style={{
-            background:
-              'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.68) 100%)',
+            pointerEvents: 'none',
           }}
         >
           <div
-            className="w-full max-w-2xl rounded-[28px] border border-white/10 p-8 text-center"
+            className="w-full max-w-2xl rounded-[28px] border border-white/10 p-6 text-center"
             style={{
               background: 'rgba(7, 9, 13, 0.72)',
               backdropFilter: 'blur(18px)',
               boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
-              fontFamily: 'Inter, system-ui, sans-serif',
             }}
           >
             <p
               style={{
-                color: 'rgba(255,255,255,0.58)',
+                color: 'rgba(255,255,255,0.62)',
                 fontSize: '12px',
                 letterSpacing: '0.35em',
                 textTransform: 'uppercase',
-                marginBottom: '14px',
+                marginBottom: '12px',
               }}
             >
               Welcome to AGI-1
@@ -368,10 +308,10 @@ export default function WelcomePage() {
             <h1
               style={{
                 color: 'white',
-                fontSize: 'clamp(32px, 6vw, 56px)',
-                fontWeight: 800,
+                fontSize: 'clamp(28px, 4.5vw, 44px)',
+                fontWeight: 700,
                 lineHeight: 1.05,
-                marginBottom: '14px',
+                marginBottom: '12px',
               }}
             >
               The Beginning of a New World
@@ -379,23 +319,22 @@ export default function WelcomePage() {
             <p
               style={{
                 color: 'rgba(255,255,255,0.72)',
-                fontSize: '15px',
-                lineHeight: 1.6,
-                marginBottom: '28px',
+                fontSize: '14px',
+                lineHeight: 1.55,
+                marginBottom: '24px',
               }}
             >
-              The cinematic intro is unavailable on this device right now, but the product is ready.
-              Enter directly or enable sound to continue with the full welcome experience.
+              The welcome intro needs one tap on this device to continue with sound. You can enter AGI-1 directly or start the video with audio now.
             </p>
-            <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div className="flex flex-col items-center justify-center gap-3 sm:flex-row" style={{ pointerEvents: 'auto' }}>
               <button
                 onClick={proceed}
                 style={{
-                  padding: '16px 34px',
+                  padding: '14px 28px',
                   background: 'linear-gradient(135deg, #FF6A00, #FF8A33)',
                   color: 'white',
                   fontWeight: 700,
-                  fontSize: '16px',
+                  fontSize: '15px',
                   borderRadius: '999px',
                   border: 'none',
                   cursor: 'pointer',
@@ -408,11 +347,11 @@ export default function WelcomePage() {
                 <button
                   onClick={handleUnmute}
                   style={{
-                    padding: '16px 34px',
+                    padding: '14px 28px',
                     background: 'transparent',
                     color: 'white',
                     fontWeight: 600,
-                    fontSize: '15px',
+                    fontSize: '14px',
                     borderRadius: '999px',
                     border: '1px solid rgba(255,255,255,0.18)',
                     cursor: 'pointer',
@@ -426,11 +365,6 @@ export default function WelcomePage() {
         </div>
       ) : null}
 
-      {/* ═══════════════════════════════════════════════════
-          BROWSER BLOCKED SOUND — minimal unmute overlay
-          Only shows if browser forced muted playback.
-          Tap anywhere on screen to unmute.
-          ═══════════════════════════════════════════════════ */}
       {browserBlocked && muted && !ended && (
         <button
           onClick={handleUnmute}
@@ -438,7 +372,6 @@ export default function WelcomePage() {
           style={{ background: 'transparent', border: 'none' }}
           aria-label="Tap to unmute"
         >
-          {/* Small unmute icon in top-right corner */}
           <div
             className="absolute top-6 right-6 flex items-center gap-2 px-4 py-2 rounded-full"
             style={{
@@ -467,9 +400,6 @@ export default function WelcomePage() {
         </button>
       )}
 
-      {/* ═══════════════════════════════════════════════════
-          BOTTOM CONTROLS — minimal, translucent, over video
-          ═══════════════════════════════════════════════════ */}
       <div
         className="absolute bottom-0 left-0 right-0 z-30 flex flex-col items-center gap-3 pb-6 pt-16"
         style={{
@@ -477,7 +407,6 @@ export default function WelcomePage() {
           fontFamily: 'Inter, system-ui, sans-serif',
         }}
       >
-        {/* Progress bar */}
         {!ended && (
           <div className="w-4/5 max-w-lg h-[3px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.15)' }}>
             <div
@@ -490,7 +419,6 @@ export default function WelcomePage() {
           </div>
         )}
 
-        {/* Skip */}
         {!ended && (
           <button
             onClick={handleSkip}
@@ -508,7 +436,6 @@ export default function WelcomePage() {
           </button>
         )}
 
-        {/* Video ended — Enter AGI-1 */}
         {ended && (
           <div style={{ animation: 'fadeInUp 0.6s ease-out' }}>
             <button
