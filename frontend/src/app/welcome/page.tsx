@@ -13,9 +13,13 @@ const WELCOME_VIDEO_SOURCES = ['/video/welcome.mp4', 'https://agi1.org/video/wel
 function TopAuthActions({
   onSignIn,
   onSignUp,
+  signInHref = '/register?mode=signin',
+  signUpHref = '/register?mode=signup',
 }: {
   onSignIn?: () => void;
   onSignUp?: () => void;
+  signInHref?: string;
+  signUpHref?: string;
 }) {
   const sharedClassName =
     'rounded-full px-4 py-2 text-sm transition sm:px-5';
@@ -27,11 +31,11 @@ function TopAuthActions({
 
   const signInProps = onSignIn
     ? { as: 'button' as const, onClick: onSignIn }
-    : { as: 'a' as const, href: '/login' };
+    : { as: 'a' as const, href: signInHref };
 
   const signUpProps = onSignUp
     ? { as: 'button' as const, onClick: onSignUp }
-    : { as: 'a' as const, href: '/register' };
+    : { as: 'a' as const, href: signUpHref };
 
   const SignInTag = signInProps.as;
   const SignUpTag = signUpProps.as;
@@ -226,7 +230,7 @@ export default function WelcomePage() {
     completeWelcome('/');
   }, [completeWelcome]);
 
-  const handleAuthEntry = useCallback((targetPath: '/login' | '/register') => {
+  const handleAuthEntry = useCallback((targetPath: string) => {
     if (videoRef.current) {
       videoRef.current.pause();
     }
@@ -277,8 +281,8 @@ export default function WelcomePage() {
       }`}
     >
       <TopAuthActions
-        onSignIn={() => handleAuthEntry('/login')}
-        onSignUp={() => handleAuthEntry('/register')}
+        onSignIn={() => handleAuthEntry('/register?mode=signin')}
+        onSignUp={() => handleAuthEntry('/register?mode=signup')}
       />
       <div
         className="pointer-events-none absolute inset-0 z-10"
