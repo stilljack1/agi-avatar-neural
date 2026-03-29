@@ -8,9 +8,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
+const WELCOME_VIDEO_SOURCES = ['/video/welcome.mp4', 'https://agi1.org/video/welcome.mp4'];
+
 export default function WelcomePage() {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const autoplayAttemptedRef = useRef(false);
   const [muted, setMuted] = useState(false);
   const [browserBlocked, setBrowserBlocked] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
@@ -20,7 +23,7 @@ export default function WelcomePage() {
   const [ready, setReady] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
   const [showFallbackOverlay, setShowFallbackOverlay] = useState(false);
-  const [videoSrc, setVideoSrc] = useState('/video/welcome.mp4');
+  const [videoSrcIndex, setVideoSrcIndex] = useState(0);
 
   // ── Redirect if already seen ────────────────────────────
   useEffect(() => {
@@ -32,30 +35,40 @@ export default function WelcomePage() {
     setReady(true);
   }, [router]);
 
-  // ── Try unmuted autoplay, fall back to muted ────────────
-  useEffect(() => {
-    if (!ready) return;
+  const attemptPlayback = useCallback(async () => {
     const vid = videoRef.current;
     if (!vid) return;
 
-    // Attempt 1: play unmuted
-    vid.muted = false;
-    const playPromise = vid.play();
-    if (playPromise !== undefined) {
-      playPromise.catch(() => {
-        // Browser blocked unmuted autoplay — fall back to muted
+    try {
+      vid.muted = false;
+      setMuted(false);
+      setBrowserBlocked(false);
+      setVideoFailed(false);
+      setShowFallbackOverlay(false);
+      await vid.play();
+    } catch {
+      try {
         vid.muted = true;
         setMuted(true);
         setBrowserBlocked(true);
+        setVideoFailed(false);
         setShowFallbackOverlay(true);
-        vid.play().catch(() => {
-          // Even muted autoplay blocked or asset failed — keep the visible fallback
-          setVideoFailed(true);
-          setShowFallbackOverlay(true);
-        });
-      });
+        await vid.play();
+      } catch {
+        setVideoFailed(true);
+        setShowFallbackOverlay(true);
+      }
     }
-  }, [ready]);
+  }, []);
+
+  // ── Try unmuted autoplay, fall back to muted ────────────
+  useEffect(() => {
+    if (!ready || autoplayAttemptedRef.current) return;
+    const vid = videoRef.current;
+    if (!vid) return;
+    autoplayAttemptedRef.current = true;
+    void attemptPlayback();
+  }, [attemptPlayback, ready]);
 
   useEffect(() => {
     if (!ready || ended) return;
@@ -76,6 +89,8 @@ export default function WelcomePage() {
     vid.muted = false;
     setMuted(false);
     setBrowserBlocked(false);
+    setVideoFailed(false);
+    setShowFallbackOverlay(false);
     // Also try to play if paused
     if (vid.paused) vid.play().catch(() => {});
   }, []);
@@ -117,7 +132,19 @@ export default function WelcomePage() {
     }
   }, []);
 
-  if (!ready) return null;
+  if (!ready) {
+    return (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black">
+        <div className="flex flex-col items-center gap-5 text-center text-white">
+          <div className="h-14 w-14 animate-spin rounded-full border-2 border-white/20 border-t-[#FF6A00]" />
+          <div>
+            <p className="text-xs uppercase tracking-[0.35em] text-white/45">AGI-1</p>
+            <h1 className="mt-2 text-3xl font-semibold">Preparing your welcome experience</h1>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -131,7 +158,11 @@ export default function WelcomePage() {
       <video
         ref={videoRef}
         className="absolute inset-0 w-full h-full object-cover"
+        autoPlay
         playsInline
+        muted={muted}
+        disablePictureInPicture
+        controlsList="nodownload noplaybackrate"
         onEnded={handleVideoEnd}
         onTimeUpdate={handleTimeUpdate}
         onLoadedData={() => {
@@ -143,16 +174,14 @@ export default function WelcomePage() {
         }}
         onStalled={() => setShowFallbackOverlay(true)}
         onError={() => {
-          if (videoSrc !== 'https://agi1.org/video/welcome.mp4') {
-            setVideoSrc('https://agi1.org/video/welcome.mp4');
+          if (videoSrcIndex < WELCOME_VIDEO_SOURCES.length - 1) {
+            autoplayAttemptedRef.current = false;
+            setVideoSrcIndex((current) => current + 1);
             const vid = videoRef.current;
             if (vid) {
               window.setTimeout(() => {
                 vid.load();
-                vid.play().catch(() => {
-                  setVideoFailed(true);
-                  setShowFallbackOverlay(true);
-                });
+                void attemptPlayback();
               }, 0);
             }
             return;
@@ -163,7 +192,7 @@ export default function WelcomePage() {
         preload="auto"
         style={{ zIndex: 1 }}
       >
-        <source src={videoSrc} type="video/mp4" />
+        <source src={WELCOME_VIDEO_SOURCES[videoSrcIndex]} type="video/mp4" />
       </video>
 
       {(showFallbackOverlay || videoFailed) && !ended ? (
