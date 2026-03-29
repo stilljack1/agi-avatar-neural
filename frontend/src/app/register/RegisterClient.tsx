@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CURRENT_POLICY_VERSIONS } from '@/lib/policyVersions';
 
 export type AuthMode = 'signup' | 'signin';
+export type SocialProvider = 'google' | 'apple' | null;
 
 const DATA_CATEGORIES = [
   {
@@ -107,10 +108,13 @@ function SocialButtons({ callbackUrl }: { callbackUrl: string }) {
 
 export default function RegisterClient({
   initialMode,
+  initialProvider = null,
 }: {
   initialMode: AuthMode;
+  initialProvider?: SocialProvider;
 }) {
   const router = useRouter();
+  const autoProviderAttemptRef = useRef<string | null>(null);
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [signInForm, setSignInForm] = useState({
     email: '',
@@ -140,6 +144,21 @@ export default function RegisterClient({
   useEffect(() => {
     setMode(initialMode);
   }, [initialMode]);
+
+  useEffect(() => {
+    if (!initialProvider) {
+      return;
+    }
+
+    const attemptKey = `${initialMode}:${initialProvider}`;
+    if (autoProviderAttemptRef.current === attemptKey) {
+      return;
+    }
+
+    autoProviderAttemptRef.current = attemptKey;
+    setError('');
+    void signIn(initialProvider, { callbackUrl });
+  }, [callbackUrl, initialMode, initialProvider]);
 
   const heading = useMemo(
     () =>

@@ -1,10 +1,15 @@
-import RegisterClient, { type AuthMode } from './RegisterClient';
+import RegisterClient, { type AuthMode, type SocialProvider } from './RegisterClient';
 
 export default function RegisterPage({
   searchParams,
 }: {
-  searchParams?: { mode?: string };
+  searchParams?: { mode?: string; provider?: string };
 }) {
   const initialMode: AuthMode = searchParams?.mode === 'signin' ? 'signin' : 'signup';
-  return <RegisterClient initialMode={initialMode} />;
+  const initialProvider: SocialProvider =
+    searchParams?.provider === 'google' || searchParams?.provider === 'apple'
+      ? searchParams.provider
+      : null;
+
+  return <RegisterClient initialMode={initialMode} initialProvider={initialProvider} />;
 }

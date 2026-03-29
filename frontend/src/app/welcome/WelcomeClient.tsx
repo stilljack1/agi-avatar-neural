@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 
 const WELCOME_VIDEO_SOURCES = ['/video/welcome.mp4', 'https://agi1.org/video/welcome.mp4'];
 const WELCOME_POSTER = '/images/agi-hero.png';
+type ClientVariant = 'web' | 'app';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -11,13 +12,15 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 function TopActions({
-  onSignIn,
-  onSignUp,
+  signInHref,
+  signUpHref,
+  onNavigate,
   onInstall,
   isInstalledApp,
 }: {
-  onSignIn: () => void;
-  onSignUp: () => void;
+  signInHref: string;
+  signUpHref: string;
+  onNavigate: (targetPath: string) => void;
   onInstall: () => void;
   isInstalledApp: boolean;
 }) {
@@ -38,17 +41,23 @@ function TopActions({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
-        <button
-          type="button"
-          onClick={onSignIn}
+        <a
+          href={signInHref}
+          onClick={(event) => {
+            event.preventDefault();
+            onNavigate(signInHref);
+          }}
           className={`${pillClass} border border-white/15 text-white hover:border-white/30 hover:bg-white/10`}
           style={glass}
         >
           Sign In
-        </button>
-        <button
-          type="button"
-          onClick={onSignUp}
+        </a>
+        <a
+          href={signUpHref}
+          onClick={(event) => {
+            event.preventDefault();
+            onNavigate(signUpHref);
+          }}
           className={`${pillClass} text-white hover:opacity-90`}
           style={{
             background: 'linear-gradient(135deg, #FF6A00, #FF8A33)',
@@ -56,7 +65,7 @@ function TopActions({
           }}
         >
           Sign Up
-        </button>
+        </a>
 
         {/* Only show Download/Install on website — hide when user is already in the installed app */}
         {!isInstalledApp && (
@@ -71,8 +80,8 @@ function TopActions({
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-          AGI-1 App
-        </button>
+            Install AGI-1 App
+          </button>
         )}
       </div>
     </div>
@@ -117,7 +126,11 @@ function InstallDialog({
   );
 }
 
-export default function WelcomeClient() {
+export default function WelcomeClient({
+  clientVariant = 'web',
+}: {
+  clientVariant?: ClientVariant;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const autoplayAttemptedRef = useRef(false);
   const installPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
@@ -132,15 +145,22 @@ export default function WelcomeClient() {
   const [showFallbackOverlay, setShowFallbackOverlay] = useState(false);
   const [videoSrcIndex, setVideoSrcIndex] = useState(0);
   const [installDialogOpen, setInstallDialogOpen] = useState(false);
-  const [isInstalledApp, setIsInstalledApp] = useState(false);
+  const [isInstalledApp, setIsInstalledApp] = useState(clientVariant === 'app');
+
+  const authPath = useCallback(
+    (mode: 'signin' | 'signup') =>
+      clientVariant === 'app' ? `/register?mode=${mode}&client=app` : `/register?mode=${mode}`,
+    [clientVariant],
+  );
 
   // Detect if running as installed PWA (standalone) — hide download button in app
   useEffect(() => {
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as any).standalone === true;
-    setIsInstalledApp(isStandalone);
-  }, []);
+      (window.navigator as any).standalone === true ||
+      window.navigator.userAgent.includes('AGI1App/');
+    setIsInstalledApp(clientVariant === 'app' || isStandalone);
+  }, [clientVariant]);
 
   const completeWelcome = useCallback((targetPath = '/') => {
     if (dontShowAgain) {
@@ -247,13 +267,13 @@ export default function WelcomeClient() {
     if (videoRef.current) {
       videoRef.current.pause();
     }
-    completeWelcome('/register?mode=signup');
-  }, [completeWelcome]);
+    completeWelcome(authPath('signup'));
+  }, [authPath, completeWelcome]);
 
   const handleVideoEnd = useCallback(() => {
     setEnded(true);
-    setTimeout(() => completeWelcome('/register?mode=signup'), 1400);
-  }, [completeWelcome]);
+    setTimeout(() => completeWelcome(authPath('signup')), 1400);
+  }, [authPath, completeWelcome]);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) {
@@ -326,8 +346,9 @@ export default function WelcomeClient() {
       />
 
       <TopActions
-        onSignIn={() => handleAuthEntry('/register?mode=signin')}
-        onSignUp={() => handleAuthEntry('/register?mode=signup')}
+        signInHref={authPath('signin')}
+        signUpHref={authPath('signup')}
+        onNavigate={handleAuthEntry}
         onInstall={() => void handleInstall()}
         isInstalledApp={isInstalledApp}
       />
@@ -352,7 +373,7 @@ export default function WelcomeClient() {
             <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <button
                 type="button"
-                onClick={() => completeWelcome('/register?mode=signup')}
+                onClick={() => completeWelcome(authPath('signup'))}
                 className="rounded-full bg-[linear-gradient(135deg,#FF6A00,#FF8A33)] px-7 py-3 text-sm font-semibold text-white shadow-[0_0_40px_rgba(255,106,0,0.22)]"
               >
                 Enter AGI-1
@@ -433,7 +454,7 @@ export default function WelcomeClient() {
         {ended ? (
           <button
             type="button"
-            onClick={() => completeWelcome('/register?mode=signup')}
+            onClick={() => completeWelcome(authPath('signup'))}
             className="rounded-full bg-[linear-gradient(135deg,#FF6A00,#FF8A33)] px-12 py-4 text-[17px] font-semibold text-white shadow-[0_0_50px_rgba(255,106,0,0.3)]"
           >
             Enter AGI-1
