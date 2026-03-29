@@ -69,6 +69,58 @@ function TopAuthActions({
   );
 }
 
+function WelcomeHeroCopy({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-20 z-20 flex justify-center px-4 sm:top-24 sm:px-6">
+      <div className="w-full max-w-5xl text-center text-white">
+        <p
+          className={`text-white/80 ${compact ? 'text-[11px]' : 'text-[12px] sm:text-[13px]'} uppercase tracking-[0.38em]`}
+          style={{ textShadow: '0 0 28px rgba(255,255,255,0.15)' }}
+        >
+          Welcome to AGI-1
+        </p>
+        <h1
+          className={`mt-4 font-semibold ${compact ? 'text-[34px]' : 'text-[40px] sm:text-[64px] lg:text-[78px]'} leading-none tracking-[-0.04em]`}
+          style={{ textShadow: '0 0 36px rgba(255,255,255,0.24)' }}
+        >
+          Welcome to AGI 1
+        </h1>
+        <div className="mx-auto mt-4 h-px w-full max-w-3xl bg-gradient-to-r from-transparent via-[#FF8A33] to-transparent opacity-90" />
+        <p
+          className={`mt-4 font-medium italic text-[#FFB56D] ${compact ? 'text-lg' : 'text-xl sm:text-[34px]'} tracking-[0.06em]`}
+          style={{ textShadow: '0 0 26px rgba(255,138,51,0.22)' }}
+        >
+          The Beginning of a New World
+        </p>
+        <p
+          className={`mx-auto mt-6 max-w-3xl ${compact ? 'text-sm' : 'text-sm sm:text-[17px]'} leading-relaxed text-white/82`}
+          style={{ textShadow: '0 0 20px rgba(0,0,0,0.35)' }}
+        >
+          Jack and Julia, your personal super intelligent assistants, are here to help you.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function WelcomeCaptionCard() {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-28 z-20 flex justify-center px-4 sm:bottom-32">
+      <div
+        className="max-w-3xl rounded-[28px] border border-white/20 px-6 py-4 text-center text-black shadow-[0_18px_80px_rgba(0,0,0,0.28)] sm:px-10"
+        style={{
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(246,246,246,0.92) 100%)',
+          backdropFilter: 'blur(16px)',
+        }}
+      >
+        <p className="text-xl font-medium leading-tight sm:text-[28px]">
+          Jack and Julia, your personal Super Assistants, are here to help you.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function WelcomePage() {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -206,6 +258,7 @@ export default function WelcomePage() {
     return (
       <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black">
         <TopAuthActions />
+        <WelcomeHeroCopy compact />
         <div className="flex flex-col items-center gap-5 text-center text-white">
           <div className="h-14 w-14 animate-spin rounded-full border-2 border-white/20 border-t-[#FF6A00]" />
           <div>
@@ -227,6 +280,15 @@ export default function WelcomePage() {
         onSignIn={() => handleAuthEntry('/login')}
         onSignUp={() => handleAuthEntry('/register')}
       />
+      <div
+        className="pointer-events-none absolute inset-0 z-10"
+        style={{
+          background:
+            'linear-gradient(180deg, rgba(3,6,12,0.72) 0%, rgba(3,6,12,0.18) 24%, rgba(3,6,12,0.08) 55%, rgba(3,6,12,0.52) 100%)',
+        }}
+      />
+      <WelcomeHeroCopy />
+      <WelcomeCaptionCard />
 
       {/* ═══════════════════════════════════════════════════
           VIDEO — 100% of the screen, nothing on top
