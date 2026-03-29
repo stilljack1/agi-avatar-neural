@@ -10,6 +10,65 @@ import { useRouter } from 'next/navigation';
 
 const WELCOME_VIDEO_SOURCES = ['/video/welcome.mp4', 'https://agi1.org/video/welcome.mp4'];
 
+function TopAuthActions({
+  onSignIn,
+  onSignUp,
+}: {
+  onSignIn?: () => void;
+  onSignUp?: () => void;
+}) {
+  const sharedClassName =
+    'rounded-full px-4 py-2 text-sm transition sm:px-5';
+
+  const sharedGlassStyle = {
+    background: 'rgba(0,0,0,0.28)',
+    backdropFilter: 'blur(10px)',
+  } as const;
+
+  const signInProps = onSignIn
+    ? { as: 'button' as const, onClick: onSignIn }
+    : { as: 'a' as const, href: '/login' };
+
+  const signUpProps = onSignUp
+    ? { as: 'button' as const, onClick: onSignUp }
+    : { as: 'a' as const, href: '/register' };
+
+  const SignInTag = signInProps.as;
+  const SignUpTag = signUpProps.as;
+
+  return (
+    <div className="absolute inset-x-0 top-0 z-30 flex items-center justify-between px-4 pt-4 sm:px-6 sm:pt-6">
+      <div
+        className="rounded-full border border-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.32em] text-white/75"
+        style={sharedGlassStyle}
+      >
+        AGI-1
+      </div>
+      <div className="flex items-center gap-2 sm:gap-3">
+        <SignInTag
+          {...(signInProps.as === 'button' ? { type: 'button' as const } : {})}
+          {...signInProps}
+          className={`${sharedClassName} border border-white/15 font-medium text-white hover:border-white/30 hover:bg-white/10`}
+          style={sharedGlassStyle}
+        >
+          Sign In
+        </SignInTag>
+        <SignUpTag
+          {...(signUpProps.as === 'button' ? { type: 'button' as const } : {})}
+          {...signUpProps}
+          className={`${sharedClassName} font-semibold text-white hover:opacity-90`}
+          style={{
+            background: 'linear-gradient(135deg, #FF6A00, #FF8A33)',
+            boxShadow: '0 0 32px rgba(255,106,0,0.24)',
+          }}
+        >
+          Sign Up
+        </SignUpTag>
+      </div>
+    </div>
+  );
+}
+
 export default function WelcomePage() {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -96,7 +155,7 @@ export default function WelcomePage() {
   }, []);
 
   // ── Proceed: always set cookie + go to wireframe SPA ────
-  const proceed = useCallback(() => {
+  const completeWelcome = useCallback((targetPath = '/') => {
     localStorage.setItem('agi1_welcome_seen', 'true');
     if (dontShowAgain) {
       document.cookie =
@@ -107,9 +166,20 @@ export default function WelcomePage() {
     }
     setFadeOut(true);
     setTimeout(() => {
-      window.location.href = '/';
+      window.location.href = targetPath;
     }, 600);
   }, [dontShowAgain]);
+
+  const proceed = useCallback(() => {
+    completeWelcome('/');
+  }, [completeWelcome]);
+
+  const handleAuthEntry = useCallback((targetPath: '/login' | '/register') => {
+    if (videoRef.current) {
+      videoRef.current.pause();
+    }
+    completeWelcome(targetPath);
+  }, [completeWelcome]);
 
   const handleSkip = useCallback(() => {
     if (videoRef.current) videoRef.current.pause();
@@ -135,6 +205,7 @@ export default function WelcomePage() {
   if (!ready) {
     return (
       <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black">
+        <TopAuthActions />
         <div className="flex flex-col items-center gap-5 text-center text-white">
           <div className="h-14 w-14 animate-spin rounded-full border-2 border-white/20 border-t-[#FF6A00]" />
           <div>
@@ -152,6 +223,11 @@ export default function WelcomePage() {
         fadeOut ? 'opacity-0' : 'opacity-100'
       }`}
     >
+      <TopAuthActions
+        onSignIn={() => handleAuthEntry('/login')}
+        onSignUp={() => handleAuthEntry('/register')}
+      />
+
       {/* ═══════════════════════════════════════════════════
           VIDEO — 100% of the screen, nothing on top
           ═══════════════════════════════════════════════════ */}
